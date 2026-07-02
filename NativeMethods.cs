@@ -48,8 +48,28 @@ internal static partial class NativeMethods
     internal const uint FileFlagOverlapped = 0x40000000;
     internal const int HidpStatusSuccess = 0x00110000;
 
+    internal const int WmPowerBroadcast = 0x0218;
+    internal const int PbtPowerSettingChange = 0x8013;
+    internal const uint DeviceNotifyWindowHandle = 0x00000000;
+    internal static readonly Guid GuidConsoleDisplayState = new("6fe69556-704a-47a0-8f24-c28d936fda47");
+
     internal enum GetAncestorFlags { GetParent = 1, GetRoot = 2, GetRootOwner = 3 }
     internal enum ShowWindowCommands { Minimize = 6 }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct PowerBroadcastSetting
+    {
+        internal Guid PowerSetting;
+        internal uint DataLength;
+        internal byte Data;
+    }
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    internal static partial IntPtr RegisterPowerSettingNotification(IntPtr recipient, in Guid powerSettingGuid, uint flags);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool UnregisterPowerSettingNotification(IntPtr handle);
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct Point { internal int X; internal int Y; }

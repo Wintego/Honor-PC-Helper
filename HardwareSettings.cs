@@ -88,13 +88,13 @@ internal static class HardwareSettings
 
     internal static int BacklightOnHour
     {
-        get => ReadInt(BacklightOnHourValue, 8);
+        get => ReadInt(BacklightOnHourValue, 18);
         set => WriteInt(BacklightOnHourValue, Math.Clamp(value, 0, 23));
     }
 
     internal static int BacklightOffHour
     {
-        get => ReadInt(BacklightOffHourValue, 23);
+        get => ReadInt(BacklightOffHourValue, 6);
         set => WriteInt(BacklightOffHourValue, Math.Clamp(value, 0, 23));
     }
 

@@ -6,16 +6,19 @@ internal sealed class PowerModeEventService : IDisposable
 {
     private readonly Action<bool> _onModeChanged;
     private readonly Action<KeyboardBacklightLevel> _onBacklightChanged;
+    private readonly Func<bool>? _shouldIgnoreBacklightEvent;
     private ManagementEventWatcher? _watcher;
     private long _lastEventTime;
     private volatile bool _currentState = HardwareSettings.PerformanceModeActive;
 
     internal PowerModeEventService(
         Action<bool> onModeChanged,
-        Action<KeyboardBacklightLevel> onBacklightChanged)
+        Action<KeyboardBacklightLevel> onBacklightChanged,
+        Func<bool>? shouldIgnoreBacklightEvent = null)
     {
         _onModeChanged = onModeChanged;
         _onBacklightChanged = onBacklightChanged;
+        _shouldIgnoreBacklightEvent = shouldIgnoreBacklightEvent;
     }
 
     internal void Start()
@@ -65,6 +68,11 @@ internal sealed class PowerModeEventService : IDisposable
         var code = Convert.ToUInt32(value) & 0xFFFF;
         if (code is 0x2B1 or 0x2B2 or 0x2B3)
         {
+            // Right after wake the firmware re-initializes the backlight and emits
+            // a spurious level event; ignoring it prevents a false manual override.
+            if (_shouldIgnoreBacklightEvent?.Invoke() == true)
+                return;
+
             var level = code switch
             {
                 0x2B1 => KeyboardBacklightLevel.Off,

@@ -14,6 +14,50 @@ internal sealed class BacklightScheduleService : IDisposable
 
     internal void Start() => _ = ApplyIfNeededAsync();
 
+    internal async Task RestoreAfterResumeAsync()
+    {
+        if (_disposed)
+            return;
+
+        // Resume events from the firmware must not count as a manual override.
+        _manualOverrideUntil = null;
+        var level = DesiredLevel(DateTime.Now);
+
+        // The firmware may reset the backlight a few times while the machine
+        // finishes waking, so re-apply the target level several times.
+        for (var attempt = 0; attempt < 3 && !_disposed; attempt++)
+        {
+            await Task.Delay(2000);
+            if (_disposed)
+                return;
+
+            try
+            {
+                await PrivilegedHardware.TryRunBacklightTaskAsync(level);
+                if (HardwareSettings.KeyboardBacklightTimeout is { } timeout)
+                    await PrivilegedHardware.TryRunBacklightTimeoutTaskAsync(timeout);
+            }
+            catch (Exception exception)
+            {
+                AppLog.Error("Backlight restore after resume failed", exception);
+            }
+        }
+
+        HardwareSettings.KeyboardBacklight = level;
+        _manualOverrideUntil = null;
+        await ApplyIfNeededAsync(force: true);
+    }
+
+    private static KeyboardBacklightLevel DesiredLevel(DateTime now)
+    {
+        if (HardwareSettings.BacklightScheduleEnabled)
+            return ShouldBeOn(now)
+                ? HardwareSettings.BacklightScheduleLevel
+                : KeyboardBacklightLevel.Off;
+
+        return HardwareSettings.KeyboardBacklight ?? KeyboardBacklightLevel.Off;
+    }
+
     internal async Task SettingsChangedAsync()
     {
         _manualOverrideUntil = null;

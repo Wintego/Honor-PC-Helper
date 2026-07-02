@@ -31,11 +31,16 @@ internal sealed class HelperApplicationContext : ApplicationContext
     private bool _disposed;
     private int _sensorRefreshInProgress;
     private long _lastSensorRefresh;
+    private long _suppressBacklightEventsUntil;
+    private long _lastResumeRestore;
+    private IntPtr _displayNotification;
     private Point _lastTrayMousePosition;
+    private const int ResumeSettleMilliseconds = 8000;
+    private const int ResumeDebounceMilliseconds = 10000;
 
     internal HelperApplicationContext()
     {
-        _window = new HotkeyWindow(OnHotkeyPressed, OnMenuTooltip);
+        _window = new HotkeyWindow(OnHotkeyPressed, OnMenuTooltip, OnDisplayResume);
         _uiDispatcher = new Control();
         _ = _uiDispatcher.Handle;
         _tooltipHandle = NativeMethods.CreateWindowEx(
@@ -81,10 +86,15 @@ internal sealed class HelperApplicationContext : ApplicationContext
         _touchpadService.Start();
         Microsoft.Win32.SystemEvents.PowerModeChanged += OnSystemPowerModeChanged;
         Microsoft.Win32.SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
+        _displayNotification = NativeMethods.RegisterPowerSettingNotification(
+            _window.Handle, NativeMethods.GuidConsoleDisplayState, NativeMethods.DeviceNotifyWindowHandle);
 
         try
         {
-            _powerModeEvents = new PowerModeEventService(HandlePowerModeChanged, HandleKeyboardBacklightChanged);
+            _powerModeEvents = new PowerModeEventService(
+                HandlePowerModeChanged,
+                HandleKeyboardBacklightChanged,
+                ShouldIgnoreBacklightEvent);
             _powerModeEvents.Start();
         }
         catch (Exception exception)
@@ -114,6 +124,11 @@ internal sealed class HelperApplicationContext : ApplicationContext
                 NativeMethods.DestroyWindow(_tooltipHandle);
             Microsoft.Win32.SystemEvents.PowerModeChanged -= OnSystemPowerModeChanged;
             Microsoft.Win32.SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
+            if (_displayNotification != IntPtr.Zero)
+            {
+                NativeMethods.UnregisterPowerSettingNotification(_displayNotification);
+                _displayNotification = IntPtr.Zero;
+            }
             _uiDispatcher.Dispose();
             _trayHoverTimer.Dispose();
             _notifyIcon.Visible = false;
@@ -265,6 +280,26 @@ internal sealed class HelperApplicationContext : ApplicationContext
         catch (InvalidOperationException)
         {
         }
+    }
+
+    private bool ShouldIgnoreBacklightEvent()
+        => Environment.TickCount64 < Interlocked.Read(ref _suppressBacklightEventsUntil);
+
+    // On modern standby (S0) systems the classic Resume power event is unreliable;
+    // the display turning back on is the dependable wake signal.
+    private void OnDisplayResume()
+    {
+        if (_disposed)
+            return;
+
+        var now = Environment.TickCount64;
+        if (now - Interlocked.Read(ref _lastResumeRestore) < ResumeDebounceMilliseconds)
+            return;
+
+        Interlocked.Exchange(ref _lastResumeRestore, now);
+        Interlocked.Exchange(ref _suppressBacklightEventsUntil, now + ResumeSettleMilliseconds);
+        AppLog.Info("Display turned on, restoring keyboard backlight");
+        _ = _backlightSchedule.RestoreAfterResumeAsync();
     }
 
     private void HandleKeyboardBacklightChanged(KeyboardBacklightLevel level)
@@ -462,6 +497,8 @@ internal sealed class HelperApplicationContext : ApplicationContext
             HardwareSettings.PowerUnlock = false;
             HardwareSettings.PerformanceModeActive = false;
             HandlePowerModeChanged(false);
+            Interlocked.Exchange(ref _suppressBacklightEventsUntil, Environment.TickCount64 + ResumeSettleMilliseconds);
+            _ = _backlightSchedule.RestoreAfterResumeAsync();
         }
     }
 
@@ -483,11 +520,13 @@ internal sealed class HelperApplicationContext : ApplicationContext
         private const int WmMenuSelect = 0x011F;
         private readonly Action<int> _onHotkeyPressed;
         private readonly Action<string?> _onTooltip;
+        private readonly Action _onDisplayResume;
 
-        internal HotkeyWindow(Action<int> onHotkeyPressed, Action<string?> onTooltip)
+        internal HotkeyWindow(Action<int> onHotkeyPressed, Action<string?> onTooltip, Action onDisplayResume)
         {
             _onHotkeyPressed = onHotkeyPressed;
             _onTooltip = onTooltip;
+            _onDisplayResume = onDisplayResume;
             CreateHandle(new CreateParams());
         }
 
@@ -496,6 +535,17 @@ internal sealed class HelperApplicationContext : ApplicationContext
             if (message.Msg == WmHotkey)
             {
                 _onHotkeyPressed(message.WParam.ToInt32());
+                return;
+            }
+            if (message.Msg == NativeMethods.WmPowerBroadcast
+                && message.WParam.ToInt32() == NativeMethods.PbtPowerSettingChange
+                && message.LParam != IntPtr.Zero)
+            {
+                var setting = System.Runtime.InteropServices.Marshal
+                    .PtrToStructure<NativeMethods.PowerBroadcastSetting>(message.LParam);
+                if (setting.PowerSetting == NativeMethods.GuidConsoleDisplayState && setting.Data == 1)
+                    _onDisplayResume();
+                base.WndProc(ref message);
                 return;
             }
             if (message.Msg == WmMenuSelect)
