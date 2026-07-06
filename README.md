@@ -26,6 +26,21 @@ Windows-утилита для управления аппаратными фун
 
 Приложение рассчитано на **Windows x64**. Доступность функций зависит от модели ноутбука HONOR.
 
+## Настройка
+
+Файл настроек необязателен. Чтобы изменить значения по умолчанию, создайте `config.json` рядом с exe:
+
+```json
+{
+  "brightnessStepPercent": 5,
+  "sensorRefreshIntervalMs": 5000,
+  "touchpadBrightnessEnabled": true,
+  "hotkeysEnabled": true
+}
+```
+
+Изменения применяются после перезапуска приложения.
+
 ## Сборка из исходников
 
 Требуется [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0):

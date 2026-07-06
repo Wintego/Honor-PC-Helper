@@ -53,6 +53,13 @@ internal static partial class NativeMethods
     internal const uint DeviceNotifyWindowHandle = 0x00000000;
     internal static readonly Guid GuidConsoleDisplayState = new("6fe69556-704a-47a0-8f24-c28d936fda47");
 
+    internal const int WmDeviceChange = 0x0219;
+    internal const int DbtDeviceArrival = 0x8000;
+    internal const int DbtDeviceRemoveComplete = 0x8004;
+    internal const int DbtDevTypDeviceInterface = 5;
+    // DEV_BROADCAST_DEVICEINTERFACE_W: dbcc_size(4) + dbcc_devicetype(4) + dbcc_reserved(4) + dbcc_classguid(16).
+    internal const int DevBroadcastNameOffset = 28;
+
     internal enum GetAncestorFlags { GetParent = 1, GetRoot = 2, GetRootOwner = 3 }
     internal enum ShowWindowCommands { Minimize = 6 }
 
@@ -66,6 +73,44 @@ internal static partial class NativeMethods
 
     [LibraryImport("user32.dll", SetLastError = true)]
     internal static partial IntPtr RegisterPowerSettingNotification(IntPtr recipient, in Guid powerSettingGuid, uint flags);
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct DevBroadcastDeviceInterface
+    {
+        internal int Size;
+        internal int DeviceType;
+        internal int Reserved;
+        internal Guid ClassGuid;
+    }
+
+    [LibraryImport("user32.dll", EntryPoint = "RegisterDeviceNotificationW", SetLastError = true)]
+    internal static partial IntPtr RegisterDeviceNotification(IntPtr recipient, IntPtr notificationFilter, uint flags);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool UnregisterDeviceNotification(IntPtr handle);
+
+    // Подписывает окно на WM_DEVICECHANGE по HID-классу устройств.
+    internal static IntPtr RegisterHidDeviceNotification(IntPtr windowHandle)
+    {
+        HidD_GetHidGuid(out var hidGuid);
+        var filter = new DevBroadcastDeviceInterface
+        {
+            Size = Marshal.SizeOf<DevBroadcastDeviceInterface>(),
+            DeviceType = DbtDevTypDeviceInterface,
+            ClassGuid = hidGuid
+        };
+        var buffer = Marshal.AllocHGlobal(filter.Size);
+        try
+        {
+            Marshal.StructureToPtr(filter, buffer, false);
+            return RegisterDeviceNotification(windowHandle, buffer, DeviceNotifyWindowHandle);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buffer);
+        }
+    }
 
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

@@ -2,7 +2,7 @@ namespace HonorPCHelper;
 
 internal sealed class HelperApplicationContext : ApplicationContext
 {
-    private const int SensorRefreshIntervalMilliseconds = 5_000;
+    private static readonly int SensorRefreshIntervalMilliseconds = AppConfig.Current.SensorRefreshIntervalMs;
     private const int MinimizeHotkeyId = 1;
     private const int PlayPauseHotkeyId = 2;
     private const int NextTrackHotkeyId = 3;
@@ -34,13 +34,16 @@ internal sealed class HelperApplicationContext : ApplicationContext
     private long _suppressBacklightEventsUntil;
     private long _lastResumeRestore;
     private IntPtr _displayNotification;
+    private IntPtr _hidNotification;
+    private readonly System.Windows.Forms.Timer _deviceChangeTimer;
+    private readonly List<int> _registeredHotkeyIds = [];
     private Point _lastTrayMousePosition;
     private const int ResumeSettleMilliseconds = 8000;
     private const int ResumeDebounceMilliseconds = 10000;
 
     internal HelperApplicationContext()
     {
-        _window = new HotkeyWindow(OnHotkeyPressed, OnMenuTooltip, OnDisplayResume);
+        _window = new HotkeyWindow(OnHotkeyPressed, OnMenuTooltip, OnDisplayResume, OnHidDeviceChange);
         _uiDispatcher = new Control();
         _ = _uiDispatcher.Handle;
         _tooltipHandle = NativeMethods.CreateWindowEx(
@@ -70,20 +73,17 @@ internal sealed class HelperApplicationContext : ApplicationContext
             Interval = SensorRefreshIntervalMilliseconds
         };
         _trayHoverTimer.Tick += OnTrayHoverTimerTick;
+        _deviceChangeTimer = new System.Windows.Forms.Timer { Interval = 1_000 };
+        _deviceChangeTimer.Tick += OnDeviceChangeTimerTick;
 
-        if (!RegisterHotkeys())
+        RegisterHotkeys();
+
+        if (AppConfig.Current.TouchpadBrightnessEnabled)
         {
-            var error = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
-            MessageBox.Show(L.T(
-                    $"Не удалось зарегистрировать горячие клавиши. Ошибка Win32: {error}",
-                    $"Failed to register hotkeys. Win32 error: {error}"),
-                "Honor PC Helper", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            ExitThread();
-            return;
+            _touchpadService = new TouchpadBrightnessService(ShowError);
+            _touchpadService.Start();
+            _hidNotification = NativeMethods.RegisterHidDeviceNotification(_window.Handle);
         }
-
-        _touchpadService = new TouchpadBrightnessService(ShowError);
-        _touchpadService.Start();
         Microsoft.Win32.SystemEvents.PowerModeChanged += OnSystemPowerModeChanged;
         Microsoft.Win32.SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
         _displayNotification = NativeMethods.RegisterPowerSettingNotification(
@@ -129,8 +129,14 @@ internal sealed class HelperApplicationContext : ApplicationContext
                 NativeMethods.UnregisterPowerSettingNotification(_displayNotification);
                 _displayNotification = IntPtr.Zero;
             }
+            if (_hidNotification != IntPtr.Zero)
+            {
+                NativeMethods.UnregisterDeviceNotification(_hidNotification);
+                _hidNotification = IntPtr.Zero;
+            }
             _uiDispatcher.Dispose();
             _trayHoverTimer.Dispose();
+            _deviceChangeTimer.Dispose();
             _notifyIcon.Visible = false;
             _notifyIcon.Dispose();
             _trayIcon?.Dispose();
@@ -157,11 +163,15 @@ internal sealed class HelperApplicationContext : ApplicationContext
 
         PowerUnlockMenu.Build(menu, UpdateTrayIcon);
 
-        menu.AddItem(L.T("Alt+M: свернуть окно под курсором", "Alt+M: minimize window under cursor"), null, enabled: false);
-        menu.AddItem(L.T("Alt+X: play/pause", "Alt+X: play/pause"), null, enabled: false);
-        menu.AddItem(L.T("Alt+C: следующий трек", "Alt+C: next track"), null, enabled: false);
-        menu.AddItem(L.T("Alt+Z: предыдущий трек", "Alt+Z: previous track"), null, enabled: false);
-        menu.AddItem(L.T("Левый край тачпада: яркость", "Left edge of touchpad: brightness"), null, enabled: false);
+        if (_registeredHotkeyIds.Count > 0)
+        {
+            menu.AddItem(L.T("Alt+M: свернуть окно под курсором", "Alt+M: minimize window under cursor"), null, enabled: false);
+            menu.AddItem(L.T("Alt+X: play/pause", "Alt+X: play/pause"), null, enabled: false);
+            menu.AddItem(L.T("Alt+C: следующий трек", "Alt+C: next track"), null, enabled: false);
+            menu.AddItem(L.T("Alt+Z: предыдущий трек", "Alt+Z: previous track"), null, enabled: false);
+        }
+        if (AppConfig.Current.TouchpadBrightnessEnabled)
+            menu.AddItem(L.T("Левый край тачпада: яркость", "Left edge of touchpad: brightness"), null, enabled: false);
         menu.AddSeparator();
         menu.AddItem(
             L.T("Запускать вместе с Windows", "Start with Windows"),
@@ -187,20 +197,46 @@ internal sealed class HelperApplicationContext : ApplicationContext
         }
     }
 
-    private bool RegisterHotkeys()
+    // Регистрирует каждое сочетание отдельно: занятое другим приложением
+    // не мешает остальным и не приводит к выходу.
+    private void RegisterHotkeys()
     {
-        return NativeMethods.RegisterHotKey(_window.Handle, MinimizeHotkeyId, ModAlt, VkM)
-            && NativeMethods.RegisterHotKey(_window.Handle, PlayPauseHotkeyId, ModAlt, VkX)
-            && NativeMethods.RegisterHotKey(_window.Handle, NextTrackHotkeyId, ModAlt, VkC)
-            && NativeMethods.RegisterHotKey(_window.Handle, PreviousTrackHotkeyId, ModAlt, VkZ);
+        if (!AppConfig.Current.HotkeysEnabled)
+            return;
+
+        (int Id, uint Vk, string Label)[] hotkeys =
+        [
+            (MinimizeHotkeyId, VkM, "Alt+M"),
+            (PlayPauseHotkeyId, VkX, "Alt+X"),
+            (NextTrackHotkeyId, VkC, "Alt+C"),
+            (PreviousTrackHotkeyId, VkZ, "Alt+Z")
+        ];
+
+        var failed = new List<string>();
+        foreach (var (id, vk, label) in hotkeys)
+        {
+            if (NativeMethods.RegisterHotKey(_window.Handle, id, ModAlt, vk))
+                _registeredHotkeyIds.Add(id);
+            else
+                failed.Add(label);
+        }
+
+        if (failed.Count == 0)
+            return;
+
+        var list = string.Join(", ", failed);
+        AppLog.Error($"Hotkeys already in use: {list}");
+        _notifyIcon.ShowBalloonTip(5_000, "Honor PC Helper",
+            L.T($"Сочетания заняты другим приложением и отключены: {list}",
+                $"Shortcuts are taken by another application and disabled: {list}"),
+            ToolTipIcon.Warning);
     }
 
     private void UnregisterHotkeys()
     {
-        NativeMethods.UnregisterHotKey(_window.Handle, MinimizeHotkeyId);
-        NativeMethods.UnregisterHotKey(_window.Handle, PlayPauseHotkeyId);
-        NativeMethods.UnregisterHotKey(_window.Handle, NextTrackHotkeyId);
-        NativeMethods.UnregisterHotKey(_window.Handle, PreviousTrackHotkeyId);
+        foreach (var id in _registeredHotkeyIds)
+            NativeMethods.UnregisterHotKey(_window.Handle, id);
+        _registeredHotkeyIds.Clear();
     }
 
     private static void OnHotkeyPressed(int hotkeyId)
@@ -284,6 +320,24 @@ internal sealed class HelperApplicationContext : ApplicationContext
 
     private bool ShouldIgnoreBacklightEvent()
         => Environment.TickCount64 < Interlocked.Read(ref _suppressBacklightEventsUntil);
+
+    // Вызывается из WndProc (UI-поток) при подключении/отключении HID-устройства.
+    // Дебаунс таймером: система шлёт пачку событий на одно физическое подключение.
+    private void OnHidDeviceChange(string devicePath)
+    {
+        if (_disposed || _touchpadService is null || !TouchpadBrightnessService.IsSupportedDevicePath(devicePath))
+            return;
+
+        _deviceChangeTimer.Stop();
+        _deviceChangeTimer.Start();
+    }
+
+    private void OnDeviceChangeTimerTick(object? sender, EventArgs eventArgs)
+    {
+        _deviceChangeTimer.Stop();
+        if (!_disposed)
+            _touchpadService?.Restart();
+    }
 
     // On modern standby (S0) systems the classic Resume power event is unreliable;
     // the display turning back on is the dependable wake signal.
@@ -521,12 +575,15 @@ internal sealed class HelperApplicationContext : ApplicationContext
         private readonly Action<int> _onHotkeyPressed;
         private readonly Action<string?> _onTooltip;
         private readonly Action _onDisplayResume;
+        private readonly Action<string> _onDeviceChange;
 
-        internal HotkeyWindow(Action<int> onHotkeyPressed, Action<string?> onTooltip, Action onDisplayResume)
+        internal HotkeyWindow(Action<int> onHotkeyPressed, Action<string?> onTooltip,
+            Action onDisplayResume, Action<string> onDeviceChange)
         {
             _onHotkeyPressed = onHotkeyPressed;
             _onTooltip = onTooltip;
             _onDisplayResume = onDisplayResume;
+            _onDeviceChange = onDeviceChange;
             CreateHandle(new CreateParams());
         }
 
@@ -545,6 +602,21 @@ internal sealed class HelperApplicationContext : ApplicationContext
                     .PtrToStructure<NativeMethods.PowerBroadcastSetting>(message.LParam);
                 if (setting.PowerSetting == NativeMethods.GuidConsoleDisplayState && setting.Data == 1)
                     _onDisplayResume();
+                base.WndProc(ref message);
+                return;
+            }
+            if (message.Msg == NativeMethods.WmDeviceChange && message.LParam != IntPtr.Zero)
+            {
+                var eventType = (int)message.WParam.ToInt64();
+                if (eventType is NativeMethods.DbtDeviceArrival or NativeMethods.DbtDeviceRemoveComplete
+                    && System.Runtime.InteropServices.Marshal.ReadInt32(message.LParam, 4)
+                        == NativeMethods.DbtDevTypDeviceInterface)
+                {
+                    var devicePath = System.Runtime.InteropServices.Marshal.PtrToStringUni(
+                        message.LParam + NativeMethods.DevBroadcastNameOffset);
+                    if (!string.IsNullOrEmpty(devicePath))
+                        _onDeviceChange(devicePath);
+                }
                 base.WndProc(ref message);
                 return;
             }

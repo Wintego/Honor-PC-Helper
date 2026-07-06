@@ -24,6 +24,21 @@ The first time you change a hardware setting, Windows will ask for administrator
 
 Requires **Windows x64**. Feature availability depends on the HONOR laptop model.
 
+## Configuration
+
+The settings file is optional. To override the defaults, create a `config.json` next to the exe:
+
+```json
+{
+  "brightnessStepPercent": 5,
+  "sensorRefreshIntervalMs": 5000,
+  "touchpadBrightnessEnabled": true,
+  "hotkeysEnabled": true
+}
+```
+
+Changes take effect after restarting the application.
+
 ## Building from source
 
 Requires [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0):

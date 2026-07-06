@@ -10,17 +10,52 @@ internal sealed class TouchpadBrightnessService : IDisposable
     ];
 
     private readonly Action<string> _reportError;
-    private readonly CancellationTokenSource _cancellation = new();
     private readonly Lock _actionLock = new();
+    private readonly Lock _lifecycleLock = new();
+    private CancellationTokenSource _cancellation = new();
     private (byte Type, byte Direction, long Time) _lastGesture;
-    private Task[] _readers = [];
+    private bool _disposed;
 
     internal TouchpadBrightnessService(Action<string> reportError)
     {
         _reportError = reportError;
     }
 
+    // Проверяет по интерфейсному пути устройства (WM_DEVICECHANGE), относится ли оно
+    // к поддерживаемым тачпадам, чтобы не перезапускать читателей на чужие устройства.
+    internal static bool IsSupportedDevicePath(string devicePath)
+        => SupportedDevices.Any(device =>
+            devicePath.Contains($"vid_{device.Vendor:x4}", StringComparison.OrdinalIgnoreCase));
+
     internal void Start()
+    {
+        lock (_lifecycleLock)
+        {
+            if (_disposed)
+                return;
+            if (!StartCore(_cancellation.Token))
+                _reportError(L.T("Совместимый тачпад Honor не найден.",
+                    "No compatible Honor touchpad was found."));
+        }
+    }
+
+    // Пересоздаёт читателей после подключения/отключения устройства
+    // (сон, переустановка драйвера тачпада): старые хендлы к этому моменту мертвы.
+    internal void Restart()
+    {
+        lock (_lifecycleLock)
+        {
+            if (_disposed)
+                return;
+            _cancellation.Cancel();
+            _cancellation.Dispose();
+            _cancellation = new CancellationTokenSource();
+            if (StartCore(_cancellation.Token))
+                AppLog.Info("Touchpad readers restarted after device change");
+        }
+    }
+
+    private bool StartCore(CancellationToken cancellation)
     {
         try
         {
@@ -29,24 +64,28 @@ internal sealed class TouchpadBrightnessService : IDisposable
                 .Where(device => device.UsagePage >= 0xFF00)
                 .ToArray();
 
-            if (candidates.Length == 0)
-            {
-                _reportError("Совместимый тачпад Honor не найден.");
-                return;
-            }
+            foreach (var device in candidates)
+                _ = ReadDevice(device, cancellation);
 
-            _readers = candidates.Select(device => ReadDevice(device, _cancellation.Token)).ToArray();
+            return candidates.Length > 0;
         }
         catch (Exception exception)
         {
             _reportError($"Ошибка запуска тачпада: {exception.Message}");
+            return false;
         }
     }
 
     public void Dispose()
     {
-        _cancellation.Cancel();
-        _cancellation.Dispose();
+        lock (_lifecycleLock)
+        {
+            if (_disposed)
+                return;
+            _disposed = true;
+            _cancellation.Cancel();
+            _cancellation.Dispose();
+        }
     }
 
     private async Task ReadDevice(HidDeviceInfo device, CancellationToken cancellation)
@@ -70,9 +109,14 @@ internal sealed class TouchpadBrightnessService : IDisposable
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
         }
+        catch (ObjectDisposedException) when (cancellation.IsCancellationRequested)
+        {
+        }
         catch (Exception exception)
         {
-            _reportError($"Ошибка чтения тачпада: {exception.Message}");
+            // Устройство пропало (сон, переустановка драйвера) - читатель завершается,
+            // WM_DEVICECHANGE перезапустит его при появлении устройства.
+            AppLog.Error($"Touchpad reader stopped: {exception.Message}");
         }
     }
 
@@ -94,7 +138,10 @@ internal sealed class TouchpadBrightnessService : IDisposable
                 // Сначала пробуем виртуальный HID-драйвер (нативный OSD Windows).
                 // Если драйвера нет - откат на WMI (без OSD).
                 if (!BrightnessVHid.TrySend(up))
-                    BrightnessController.Change(up ? 5 : -5);
+                {
+                    var step = AppConfig.Current.BrightnessStepPercent;
+                    BrightnessController.Change(up ? step : -step);
+                }
             }
             catch (Exception exception)
             {
