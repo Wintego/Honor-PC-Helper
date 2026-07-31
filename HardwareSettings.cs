@@ -16,6 +16,7 @@ internal static class HardwareSettings
     private const string BacklightScheduleLevelValue = "BacklightScheduleLevel";
     private const string PendingHardwareCommandValue = "PendingHardwareCommand";
     private const string SensorSnapshotValue = "SensorSnapshot";
+    private const string HotkeyValuePrefix = "Hotkey.";
 
     internal readonly record struct TooltipState(
         string? SensorSnapshot,
@@ -201,6 +202,25 @@ internal static class HardwareSettings
             using var key = Registry.CurrentUser.CreateSubKey(RegistryPath, true);
             key.SetValue(PerformanceModeValue, value ? 1 : 0, RegistryValueKind.DWord);
         }
+    }
+
+    /// <summary>
+    /// Пользовательское сочетание клавиш для действия. null - значение не задавалось,
+    /// действует умолчание; "None" - пользователь отключил сочетание.
+    /// </summary>
+    internal static string? GetHotkey(string action)
+    {
+        using var key = Registry.CurrentUser.OpenSubKey(RegistryPath);
+        return key?.GetValue(HotkeyValuePrefix + action) as string;
+    }
+
+    internal static void SetHotkey(string action, string? value)
+    {
+        using var key = Registry.CurrentUser.CreateSubKey(RegistryPath, true);
+        if (value is null)
+            key.DeleteValue(HotkeyValuePrefix + action, false);
+        else
+            key.SetValue(HotkeyValuePrefix + action, value, RegistryValueKind.String);
     }
 
     private static int ReadInt(string name, int defaultValue)

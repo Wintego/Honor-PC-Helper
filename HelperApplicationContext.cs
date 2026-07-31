@@ -3,21 +3,12 @@ namespace HonorPCHelper;
 internal sealed class HelperApplicationContext : ApplicationContext
 {
     private static readonly int SensorRefreshIntervalMilliseconds = AppConfig.Current.SensorRefreshIntervalMs;
-    private const int MinimizeHotkeyId = 1;
-    private const int PlayPauseHotkeyId = 2;
-    private const int NextTrackHotkeyId = 3;
-    private const int PreviousTrackHotkeyId = 4;
-    private const uint ModAlt = 0x0001;
-    private const uint VkC = 0x43;
-    private const uint VkM = 0x4D;
-    private const uint VkX = 0x58;
-    private const uint VkZ = 0x5A;
-    private const byte VkMediaNextTrack = 0xB0;
-    private const byte VkMediaPreviousTrack = 0xB1;
-    private const byte VkMediaPlayPause = 0xB3;
-    private const uint KeyEventKeyUp = 0x0002;
+    // Мышь над иконкой трея генерирует поток событий, а сборка подсказки читает
+    // реестр и WMI - поэтому обновление ограничено по частоте.
+    private const int TooltipMinIntervalMilliseconds = 750;
 
     private readonly HotkeyWindow _window;
+    private readonly HotkeyManager _hotkeys;
     private readonly Control _uiDispatcher;
     private readonly NotifyIcon _notifyIcon;
     private readonly System.Windows.Forms.Timer _trayHoverTimer;
@@ -36,14 +27,15 @@ internal sealed class HelperApplicationContext : ApplicationContext
     private IntPtr _displayNotification;
     private IntPtr _hidNotification;
     private readonly System.Windows.Forms.Timer _deviceChangeTimer;
-    private readonly List<int> _registeredHotkeyIds = [];
     private Point _lastTrayMousePosition;
+    private string _tooltipCache = string.Empty;
+    private long _lastTooltipUpdate;
     private const int ResumeSettleMilliseconds = 8000;
     private const int ResumeDebounceMilliseconds = 10000;
 
     internal HelperApplicationContext()
     {
-        _window = new HotkeyWindow(OnHotkeyPressed, OnMenuTooltip, OnDisplayResume, OnHidDeviceChange);
+        _window = new HotkeyWindow(id => _hotkeys?.Dispatch(id), OnMenuTooltip, OnDisplayResume, OnHidDeviceChange);
         _uiDispatcher = new Control();
         _ = _uiDispatcher.Handle;
         _tooltipHandle = NativeMethods.CreateWindowEx(
@@ -60,10 +52,12 @@ internal sealed class HelperApplicationContext : ApplicationContext
             NativeMethods.SwpNoMove | NativeMethods.SwpNoSize | NativeMethods.SwpNoActivate);
         _backlightSchedule = new BacklightScheduleService();
         _trayIcon = TrayIconFactory.Create(HardwareSettings.PerformanceModeActive);
+        _tooltipCache = DiagnosticsService.BuildCompactToolTip();
+        _lastTooltipUpdate = Environment.TickCount64;
         _notifyIcon = new NotifyIcon
         {
             Icon = _trayIcon,
-            Text = DiagnosticsService.BuildCompactToolTip(),
+            Text = _tooltipCache,
             Visible = true
         };
         _notifyIcon.MouseMove += OnTrayIconMouseMove;
@@ -76,7 +70,8 @@ internal sealed class HelperApplicationContext : ApplicationContext
         _deviceChangeTimer = new System.Windows.Forms.Timer { Interval = 1_000 };
         _deviceChangeTimer.Tick += OnDeviceChangeTimerTick;
 
-        RegisterHotkeys();
+        _hotkeys = new HotkeyManager(_window.Handle, ShowWarningBalloon);
+        _hotkeys.RegisterAll();
 
         if (AppConfig.Current.TouchpadBrightnessEnabled)
         {
@@ -112,7 +107,7 @@ internal sealed class HelperApplicationContext : ApplicationContext
 
     protected override void Dispose(bool disposing)
     {
-        UnregisterHotkeys();
+        _hotkeys.Dispose();
         if (disposing)
         {
             _disposed = true;
@@ -163,13 +158,8 @@ internal sealed class HelperApplicationContext : ApplicationContext
 
         PowerUnlockMenu.Build(menu, UpdateTrayIcon);
 
-        if (_registeredHotkeyIds.Count > 0)
-        {
-            menu.AddItem(L.T("Alt+M: свернуть окно под курсором", "Alt+M: minimize window under cursor"), null, enabled: false);
-            menu.AddItem(L.T("Alt+X: play/pause", "Alt+X: play/pause"), null, enabled: false);
-            menu.AddItem(L.T("Alt+C: следующий трек", "Alt+C: next track"), null, enabled: false);
-            menu.AddItem(L.T("Alt+Z: предыдущий трек", "Alt+Z: previous track"), null, enabled: false);
-        }
+        if (_hotkeys.Enabled)
+            BuildHotkeyItems(menu);
         if (AppConfig.Current.TouchpadBrightnessEnabled)
             menu.AddItem(L.T("Левый край тачпада: яркость", "Left edge of touchpad: brightness"), null, enabled: false);
         menu.AddSeparator();
@@ -180,6 +170,30 @@ internal sealed class HelperApplicationContext : ApplicationContext
         menu.AddItem(L.T("Выход", "Exit"), ExitThread);
 
         return menu;
+    }
+
+    // Клик по пункту открывает окно захвата нового сочетания.
+    private void BuildHotkeyItems(NativePopupMenu menu)
+    {
+        var tooltip = L.T(
+            "Клик - задать другое сочетание. Esc - отмена, Del - отключить.",
+            "Click to set a different shortcut. Esc - cancel, Del - disable.");
+
+        foreach (var action in HotkeyManager.Actions)
+            menu.AddItem(_hotkeys.MenuText(action), () => _hotkeys.Rebind(action), tooltip: tooltip);
+
+        if (_hotkeys.HasCustomBindings())
+            menu.AddItem(
+                L.T("Сбросить сочетания по умолчанию", "Reset shortcuts to defaults"),
+                _hotkeys.ResetToDefaults);
+    }
+
+    private void ShowWarningBalloon(string message)
+    {
+        if (_disposed)
+            return;
+
+        _notifyIcon.ShowBalloonTip(5_000, "Honor PC Helper", message, ToolTipIcon.Warning);
     }
 
     private void ToggleStartup()
@@ -195,90 +209,6 @@ internal sealed class HelperApplicationContext : ApplicationContext
                     $"Failed to change startup setting: {exception.Message}"),
                 "Honor PC Helper", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
-    }
-
-    // Регистрирует каждое сочетание отдельно: занятое другим приложением
-    // не мешает остальным и не приводит к выходу.
-    private void RegisterHotkeys()
-    {
-        if (!AppConfig.Current.HotkeysEnabled)
-            return;
-
-        (int Id, uint Vk, string Label)[] hotkeys =
-        [
-            (MinimizeHotkeyId, VkM, "Alt+M"),
-            (PlayPauseHotkeyId, VkX, "Alt+X"),
-            (NextTrackHotkeyId, VkC, "Alt+C"),
-            (PreviousTrackHotkeyId, VkZ, "Alt+Z")
-        ];
-
-        var failed = new List<string>();
-        foreach (var (id, vk, label) in hotkeys)
-        {
-            if (NativeMethods.RegisterHotKey(_window.Handle, id, ModAlt, vk))
-                _registeredHotkeyIds.Add(id);
-            else
-                failed.Add(label);
-        }
-
-        if (failed.Count == 0)
-            return;
-
-        var list = string.Join(", ", failed);
-        AppLog.Error($"Hotkeys already in use: {list}");
-        _notifyIcon.ShowBalloonTip(5_000, "Honor PC Helper",
-            L.T($"Сочетания заняты другим приложением и отключены: {list}",
-                $"Shortcuts are taken by another application and disabled: {list}"),
-            ToolTipIcon.Warning);
-    }
-
-    private void UnregisterHotkeys()
-    {
-        foreach (var id in _registeredHotkeyIds)
-            NativeMethods.UnregisterHotKey(_window.Handle, id);
-        _registeredHotkeyIds.Clear();
-    }
-
-    private static void OnHotkeyPressed(int hotkeyId)
-    {
-        switch (hotkeyId)
-        {
-            case MinimizeHotkeyId:
-                MinimizeWindowUnderCursor();
-                break;
-            case PlayPauseHotkeyId:
-                SendMediaKey(VkMediaPlayPause);
-                break;
-            case NextTrackHotkeyId:
-                SendMediaKey(VkMediaNextTrack);
-                break;
-            case PreviousTrackHotkeyId:
-                SendMediaKey(VkMediaPreviousTrack);
-                break;
-        }
-    }
-
-    private static void MinimizeWindowUnderCursor()
-    {
-        if (!NativeMethods.GetCursorPos(out var point))
-            return;
-
-        var target = NativeMethods.WindowFromPoint(point);
-        if (target == IntPtr.Zero)
-            return;
-
-        var root = NativeMethods.GetAncestor(target, NativeMethods.GetAncestorFlags.GetRoot);
-        if (root != IntPtr.Zero)
-            target = root;
-
-        if (target != NativeMethods.GetDesktopWindow() && target != NativeMethods.GetShellWindow())
-            NativeMethods.ShowWindow(target, NativeMethods.ShowWindowCommands.Minimize);
-    }
-
-    private static void SendMediaKey(byte virtualKey)
-    {
-        NativeMethods.KeybdEvent(virtualKey, 0, 0, UIntPtr.Zero);
-        NativeMethods.KeybdEvent(virtualKey, 0, KeyEventKeyUp, UIntPtr.Zero);
     }
 
     private void ShowError(string message)
@@ -382,8 +312,9 @@ internal sealed class HelperApplicationContext : ApplicationContext
         try
         {
             _lastTrayMousePosition = Control.MousePosition;
-            _trayHoverTimer.Start();
-            _notifyIcon.Text = DiagnosticsService.BuildCompactToolTip();
+            if (!_trayHoverTimer.Enabled)
+                _trayHoverTimer.Start();
+            UpdateTrayTooltip();
             _ = RefreshSensorsAsync();
         }
         catch (Exception exception)
@@ -400,8 +331,30 @@ internal sealed class HelperApplicationContext : ApplicationContext
             return;
         }
 
-        _notifyIcon.Text = DiagnosticsService.BuildCompactToolTip();
+        UpdateTrayTooltip();
         _ = RefreshSensorsAsync();
+    }
+
+    /// <summary>
+    /// Пересобирает подсказку не чаще, чем раз в <see cref="TooltipMinIntervalMilliseconds"/>,
+    /// и обращается к оболочке только когда текст действительно изменился.
+    /// </summary>
+    private void UpdateTrayTooltip(bool force = false)
+    {
+        if (_disposed)
+            return;
+
+        var now = Environment.TickCount64;
+        if (!force && now - _lastTooltipUpdate < TooltipMinIntervalMilliseconds)
+            return;
+
+        _lastTooltipUpdate = now;
+        var text = DiagnosticsService.BuildCompactToolTip();
+        if (text == _tooltipCache)
+            return;
+
+        _tooltipCache = text;
+        _notifyIcon.Text = text;
     }
 
     private async Task RefreshSensorsAsync()
@@ -416,11 +369,7 @@ internal sealed class HelperApplicationContext : ApplicationContext
             if (!await PrivilegedHardware.TryReadSensorsTaskAsync() || _disposed || _uiDispatcher.IsDisposed)
                 return;
 
-            _uiDispatcher.BeginInvoke(() =>
-            {
-                if (!_disposed)
-                    _notifyIcon.Text = DiagnosticsService.BuildCompactToolTip();
-            });
+            _uiDispatcher.BeginInvoke(() => UpdateTrayTooltip(force: true));
         }
         catch (Exception exception)
         {

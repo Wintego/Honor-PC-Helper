@@ -2,44 +2,59 @@ namespace HonorPCHelper;
 
 internal sealed class NativePopupMenu : IDisposable
 {
-    internal IntPtr Handle { get; }
-    private readonly Dictionary<int, Action> _callbacks;
-    private readonly Dictionary<int, string> _tooltips;
-    private readonly Dictionary<(IntPtr Menu, int Index), string> _subMenuTooltips;
-    private readonly bool _ownsHandle;
-    private static int _nextGlobalId = 1000;
+    // Идентификаторы пунктов должны укладываться в 16 бит: WM_MENUSELECT
+    // отдаёт их младшим словом WPARAM. Счётчик локальный для меню, поэтому
+    // при многократном открытии трея он не переполняется.
+    private const int FirstItemId = 1000;
+    private const int LastItemId = 0xEFFF;
 
-    internal NativePopupMenu(
-        Dictionary<int, Action>? callbacks = null,
-        Dictionary<int, string>? tooltips = null,
-        Dictionary<(IntPtr Menu, int Index), string>? subMenuTooltips = null,
-        bool ownsHandle = true)
+    /// <summary>Общее состояние корневого меню и всех его подменю.</summary>
+    private sealed class MenuState
+    {
+        internal readonly Dictionary<int, Action> Callbacks = [];
+        internal readonly Dictionary<int, string> Tooltips = [];
+        internal readonly Dictionary<(IntPtr Menu, int Index), string> SubMenuTooltips = [];
+        internal int NextId = FirstItemId;
+    }
+
+    // Меню отслеживается только в UI-потоке, где создаётся и обрабатывается.
+    [ThreadStatic] private static NativePopupMenu? _activeMenu;
+
+    internal IntPtr Handle { get; }
+    private readonly MenuState _state;
+    private readonly bool _ownsHandle;
+
+    internal NativePopupMenu() : this(new MenuState(), ownsHandle: true)
+    {
+    }
+
+    private NativePopupMenu(MenuState state, bool ownsHandle)
     {
         Handle = NativeMethods.CreatePopupMenu();
-        _callbacks = callbacks ?? new Dictionary<int, Action>();
-        _tooltips = tooltips ?? new Dictionary<int, string>();
-        _subMenuTooltips = subMenuTooltips ?? new Dictionary<(IntPtr Menu, int Index), string>();
+        _state = state;
         _ownsHandle = ownsHandle;
     }
 
     internal NativePopupMenu AddSubMenu(string text, string? tooltip = null)
     {
         var index = NativeMethods.GetMenuItemCount(Handle);
-        var sub = new NativePopupMenu(_callbacks, _tooltips, _subMenuTooltips, ownsHandle: false);
+        var sub = new NativePopupMenu(_state, ownsHandle: false);
         NativeMethods.AppendMenuW(Handle, NativeMethods.MfPopup | NativeMethods.MfString | NativeMethods.MfEnabled,
             sub.Handle, text);
         if (tooltip is not null)
-            _subMenuTooltips[(Handle, index)] = tooltip;
+            _state.SubMenuTooltips[(Handle, index)] = tooltip;
         return sub;
     }
 
     internal int AddItem(string text, Action? onClick, bool enabled = true, bool @checked = false, string? tooltip = null)
     {
-        var id = Interlocked.Increment(ref _nextGlobalId);
+        var id = _state.NextId++;
+        if (_state.NextId > LastItemId)
+            _state.NextId = FirstItemId;
         if (onClick != null)
-            _callbacks[id] = onClick;
+            _state.Callbacks[id] = onClick;
         if (tooltip != null)
-            _tooltips[id] = tooltip;
+            _state.Tooltips[id] = tooltip;
         var flags = NativeMethods.MfString;
         if (enabled)
             flags |= NativeMethods.MfEnabled;
@@ -60,10 +75,7 @@ internal sealed class NativePopupMenu : IDisposable
     {
         NativeMethods.SetForegroundWindow(owner);
         var pos = Control.MousePosition;
-        lock (_activeMenuLock)
-        {
-            _activeMenu = this;
-        }
+        _activeMenu = this;
         try
         {
             return NativeMethods.TrackPopupMenuEx(
@@ -75,17 +87,14 @@ internal sealed class NativePopupMenu : IDisposable
         }
         finally
         {
-            lock (_activeMenuLock)
-            {
-                if (_activeMenu == this)
-                    _activeMenu = null;
-            }
+            if (_activeMenu == this)
+                _activeMenu = null;
         }
     }
 
     internal bool TryInvoke(int commandId)
     {
-        if (_callbacks.TryGetValue(commandId, out var action))
+        if (_state.Callbacks.TryGetValue(commandId, out var action))
         {
             action();
             return true;
@@ -94,36 +103,16 @@ internal sealed class NativePopupMenu : IDisposable
     }
 
     internal static string? GetTooltip(int commandId)
-    {
-        NativePopupMenu? menu;
-        lock (_activeMenuLock)
-        {
-            menu = _activeMenu;
-        }
-        if (menu == null)
-            return null;
-        lock (menu._tooltips)
-        {
-            return menu._tooltips.TryGetValue(commandId, out var t) ? t : null;
-        }
-    }
+        => _activeMenu is { } menu && menu._state.Tooltips.TryGetValue(commandId, out var text) ? text : null;
 
     internal static string? GetSubMenuTooltip(IntPtr menuHandle, int itemIndex)
-    {
-        NativePopupMenu? menu;
-        lock (_activeMenuLock)
-            menu = _activeMenu;
-        if (menu is null)
-            return null;
-        lock (menu._subMenuTooltips)
-            return menu._subMenuTooltips.TryGetValue((menuHandle, itemIndex), out var text) ? text : null;
-    }
-
-    private static NativePopupMenu? _activeMenu;
-    private static readonly object _activeMenuLock = new();
+        => _activeMenu is { } menu && menu._state.SubMenuTooltips.TryGetValue((menuHandle, itemIndex), out var text)
+            ? text
+            : null;
 
     public void Dispose()
     {
+        // DestroyMenu рекурсивно уничтожает вложенные подменю.
         if (_ownsHandle && Handle != IntPtr.Zero)
             NativeMethods.DestroyMenu(Handle);
     }

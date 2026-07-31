@@ -188,6 +188,9 @@ internal static partial class NativeMethods
     internal static partial bool GetCursorPos(out Point point);
 
     [LibraryImport("user32.dll")]
+    internal static partial short GetKeyState(int virtualKey);
+
+    [LibraryImport("user32.dll")]
     internal static partial int GetSystemMetrics(int index);
 
     [LibraryImport("user32.dll")]

@@ -22,8 +22,9 @@ internal static class AppLog
             lock (SyncRoot)
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-                if (File.Exists(FilePath) && new FileInfo(FilePath).Length > MaxFileSize)
-                    File.Delete(FilePath);
+                var file = new FileInfo(FilePath);
+                if (file.Exists && file.Length > MaxFileSize)
+                    file.Delete();
 
                 var details = exception is null ? string.Empty : $" | {exception}";
                 File.AppendAllText(FilePath, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [{level}] {message}{details}{Environment.NewLine}");

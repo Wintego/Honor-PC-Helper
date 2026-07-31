@@ -4,8 +4,18 @@ namespace HonorPCHelper;
 
 internal static class DiagnosticsService
 {
+    // NotifyIcon.Text не может быть длиннее 127 символов.
+    private const int MaxTooltipLength = 127;
+
     private static long _powerCacheTicks;
+    private static bool _powerCacheValid;
     private static double? _powerCache;
+
+    // Подсказка пересобирается при каждом наведении на иконку, поэтому строки
+    // складываются в буфер, а локализуются только литералы: интерполяция
+    // обоих языковых вариантов сразу удваивала бы аллокации.
+    [ThreadStatic] private static System.Text.StringBuilder? _buffer;
+
     internal static string BuildCompactToolTip()
     {
         var state = HardwareSettings.ReadTooltipState();
@@ -40,43 +50,70 @@ internal static class DiagnosticsService
                 BatteryProtectionMode.Disabled => L.T("выкл.", "off"),
                 _ => "?"
             };
-        var lines = new List<string>
-        {
-            L.T($"Режим: {mode}", $"Mode: {mode}"),
-            L.T($"Подсветка: {backlight}", $"Backlight: {backlight}"),
-            L.T($"Ограничение заряда: {protection}", $"Charge limit: {protection}")
-        };
+        var text = _buffer ??= new System.Text.StringBuilder(MaxTooltipLength + 32);
+        text.Clear();
+        text.Append(L.T("Режим: ", "Mode: ")).Append(mode);
+        text.AppendLine().Append(L.T("Подсветка: ", "Backlight: ")).Append(backlight);
+        text.AppendLine().Append(L.T("Ограничение заряда: ", "Charge limit: ")).Append(protection);
 
         var power = ReadBatteryPowerWatts();
         if (power.HasValue)
-            lines.Add(L.T($"Питание: {FormatPower(power.Value)}", $"Power: {FormatPower(power.Value)}"));
+        {
+            text.AppendLine().Append(L.T("Питание: ", "Power: "));
+            AppendPower(text, power.Value);
+        }
 
         if (hasHardwareState)
         {
             if (hardwareState.CpuTemperature.HasValue || hardwareState.BatteryTemperature.HasValue)
-                lines.Add(L.T(
-                    $"CPU: {FormatTemperature(hardwareState.CpuTemperature)}; батарея: {FormatTemperature(hardwareState.BatteryTemperature)}",
-                    $"CPU: {FormatTemperature(hardwareState.CpuTemperature)}; battery: {FormatTemperature(hardwareState.BatteryTemperature)}"));
+            {
+                text.AppendLine().Append("CPU: ");
+                AppendTemperature(text, hardwareState.CpuTemperature);
+                text.Append(L.T("; батарея: ", "; battery: "));
+                AppendTemperature(text, hardwareState.BatteryTemperature);
+            }
             if (hardwareState.Fan1Rpm.HasValue || hardwareState.Fan2Rpm.HasValue)
-                lines.Add(L.T(
-                    $"Вентиляторы: {FormatFan(hardwareState.Fan1Rpm)}/{FormatFan(hardwareState.Fan2Rpm)} об/мин",
-                    $"Fans: {FormatFan(hardwareState.Fan1Rpm)}/{FormatFan(hardwareState.Fan2Rpm)} RPM"));
+            {
+                text.AppendLine().Append(L.T("Вентиляторы: ", "Fans: "));
+                AppendFan(text, hardwareState.Fan1Rpm);
+                text.Append('/');
+                AppendFan(text, hardwareState.Fan2Rpm);
+                text.Append(L.T(" об/мин", " RPM"));
+            }
         }
 
-        var text = string.Join(Environment.NewLine, lines);
-        return text.Length <= 127 ? text : text[..127];
+        if (text.Length > MaxTooltipLength)
+            text.Length = MaxTooltipLength;
+        return text.ToString();
     }
 
-    private static string FormatTemperature(int? value) => value.HasValue ? $"{value}°C" : "?";
+    private static void AppendTemperature(System.Text.StringBuilder text, int? value)
+    {
+        if (value.HasValue)
+            text.Append(value.Value).Append("°C");
+        else
+            text.Append('?');
+    }
 
-    private static string FormatFan(int? value) => value?.ToString() ?? "?";
+    private static void AppendFan(System.Text.StringBuilder text, int? value)
+    {
+        if (value.HasValue)
+            text.Append(value.Value);
+        else
+            text.Append('?');
+    }
 
-    private static string FormatPower(double watts)
+    private static void AppendPower(System.Text.StringBuilder text, double watts)
     {
         if (Math.Abs(watts) < 0.05)
-            return L.T("0 Вт", "0 W");
-        var sign = watts > 0 ? "+" : "";
-        return L.T($"{sign}{watts:0.0} Вт", $"{sign}{watts:0.0} W");
+        {
+            text.Append(L.T("0 Вт", "0 W"));
+            return;
+        }
+
+        if (watts > 0)
+            text.Append('+');
+        text.Append(watts.ToString("0.0")).Append(L.T(" Вт", " W"));
     }
 
     // Charge/discharge power in watts: positive while charging, negative while
@@ -85,7 +122,9 @@ internal static class DiagnosticsService
     // tooltip refreshes during a hover don't re-query WMI each time.
     private static double? ReadBatteryPowerWatts()
     {
-        if (_powerCache.HasValue
+        // Кэшируется и отсутствие значения: иначе на машине без батареи WMI
+        // опрашивался бы при каждой перерисовке подсказки.
+        if (_powerCacheValid
             && Environment.TickCount64 - Interlocked.Read(ref _powerCacheTicks) < 2000)
             return _powerCache;
 
@@ -97,7 +136,7 @@ internal static class DiagnosticsService
             using var searcher = new ManagementObjectSearcher(
                 scope, new ObjectQuery("SELECT ChargeRate, DischargeRate FROM BatteryStatus"));
             using var items = searcher.Get();
-            foreach (var item in items.Cast<ManagementObject>())
+            foreach (ManagementBaseObject item in items)
             {
                 using (item)
                 {
@@ -114,6 +153,7 @@ internal static class DiagnosticsService
         }
 
         _powerCache = result;
+        _powerCacheValid = true;
         Interlocked.Exchange(ref _powerCacheTicks, Environment.TickCount64);
         return result;
     }

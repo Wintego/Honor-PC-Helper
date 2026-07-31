@@ -9,7 +9,7 @@ A Windows system tray utility for managing HONOR laptop hardware features. Uses 
 - **Performance** — switch between balanced and performance mode
 - **Monitoring** — view temperatures, fan speeds, and hardware settings in the tray tooltip
 - **Touchpad** — adjust brightness by swiping the left edge
-- **Hotkeys** — global shortcuts for window and media control
+- **Hotkeys** — global shortcuts for window and media control, reassignable from the tray menu
 - **Autostart** — launches with Windows
 
 ## Screenshot
@@ -23,6 +23,14 @@ Download `HonorPCHelper.exe` from the [latest release](https://github.com/Winteg
 The first time you change a hardware setting, Windows will ask for administrator privileges to create a scheduled task.
 
 Requires **Windows x64**. Feature availability depends on the HONOR laptop model.
+
+## Hotkeys
+
+Defaults: `Alt+M` — minimize the window under the cursor, `Alt+X` — play/pause, `Alt+C` — next track, `Alt+Z` — previous track.
+
+To change a shortcut, click the matching item in the tray menu and press the new combination. At least one modifier is required — Ctrl, Alt or Win. `Esc` cancels, `Del` disables the shortcut. Changes apply immediately and are stored in the registry; the "Reset shortcuts to defaults" item restores the original values.
+
+If a combination is already taken by another application, a balloon tip reports it and the menu item is marked as "in use".
 
 ## Configuration
 
