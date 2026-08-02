@@ -79,6 +79,8 @@ internal sealed class HelperApplicationContext : ApplicationContext
             _touchpadService.Start();
             _hidNotification = NativeMethods.RegisterHidDeviceNotification(_window.Handle);
         }
+        // Уровень вибрации живёт в прошивке тачпада и сбрасывается при перезагрузке.
+        TouchpadHapticsController.Reapply();
         Microsoft.Win32.SystemEvents.PowerModeChanged += OnSystemPowerModeChanged;
         Microsoft.Win32.SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
         _displayNotification = NativeMethods.RegisterPowerSettingNotification(
@@ -155,6 +157,15 @@ internal sealed class HelperApplicationContext : ApplicationContext
             L.T("Уровень подсветки и автоматическое расписание.",
                 "Backlight level and automatic schedule."));
         KeyboardBacklightMenu.Build(backlightSub, _backlightSchedule);
+
+        if (TouchpadHapticsController.IsSupported())
+        {
+            var hapticsSub = menu.AddSubMenu(
+                L.T("Вибрация тачпада", "Touchpad haptics"),
+                L.T("Интенсивность виброотклика при нажатии на тачпад.",
+                    "Vibration strength when pressing the touchpad."));
+            TouchpadHapticsMenu.Build(hapticsSub);
+        }
 
         PowerUnlockMenu.Build(menu, UpdateTrayIcon);
 
@@ -265,8 +276,12 @@ internal sealed class HelperApplicationContext : ApplicationContext
     private void OnDeviceChangeTimerTick(object? sender, EventArgs eventArgs)
     {
         _deviceChangeTimer.Stop();
-        if (!_disposed)
-            _touchpadService?.Restart();
+        if (_disposed)
+            return;
+
+        _touchpadService?.Restart();
+        // Прошивка тачпада забывает уровень вибрации при переподключении.
+        TouchpadHapticsController.Reapply();
     }
 
     // On modern standby (S0) systems the classic Resume power event is unreliable;
@@ -284,6 +299,7 @@ internal sealed class HelperApplicationContext : ApplicationContext
         Interlocked.Exchange(ref _suppressBacklightEventsUntil, now + ResumeSettleMilliseconds);
         AppLog.Info("Display turned on, restoring keyboard backlight");
         _ = _backlightSchedule.RestoreAfterResumeAsync();
+        TouchpadHapticsController.Reapply();
     }
 
     private void HandleKeyboardBacklightChanged(KeyboardBacklightLevel level)

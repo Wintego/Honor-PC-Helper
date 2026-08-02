@@ -14,6 +14,7 @@ internal static class HardwareSettings
     private const string BacklightOnHourValue = "BacklightOnHour";
     private const string BacklightOffHourValue = "BacklightOffHour";
     private const string BacklightScheduleLevelValue = "BacklightScheduleLevel";
+    private const string TouchpadHapticsValue = "TouchpadHapticsLevel";
     private const string PendingHardwareCommandValue = "PendingHardwareCommand";
     private const string SensorSnapshotValue = "SensorSnapshot";
     private const string HotkeyValuePrefix = "Hotkey.";
@@ -187,6 +188,24 @@ internal static class HardwareSettings
                 key.SetValue(KeyboardBacklightTimeoutValue, (int)value.Value, RegistryValueKind.DWord);
             else
                 key.DeleteValue(KeyboardBacklightTimeoutValue, false);
+        }
+    }
+
+    internal static TouchpadHapticsLevel? TouchpadHaptics
+    {
+        get
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(RegistryPath);
+            var value = key?.GetValue(TouchpadHapticsValue) as string;
+            return Enum.TryParse<TouchpadHapticsLevel>(value, out var level) ? level : null;
+        }
+        set
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(RegistryPath, true);
+            if (value.HasValue)
+                key.SetValue(TouchpadHapticsValue, value.Value.ToString());
+            else
+                key.DeleteValue(TouchpadHapticsValue, false);
         }
     }
 

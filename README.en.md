@@ -8,7 +8,7 @@ A Windows system tray utility for managing HONOR laptop hardware features. Uses 
 - **Keyboard backlight** — on/off, timeout, and auto-enable schedule
 - **Performance** — switch between balanced and performance mode
 - **Monitoring** — view temperatures, fan speeds, and hardware settings in the tray tooltip
-- **Touchpad** — adjust brightness by swiping the left edge
+- **Touchpad** — adjust brightness by swiping the left edge, choose haptic feedback strength
 - **Hotkeys** — global shortcuts for window and media control, reassignable from the tray menu
 - **Autostart** — launches with Windows
 

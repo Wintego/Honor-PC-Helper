@@ -314,6 +314,12 @@ internal static partial class NativeMethods
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool WriteFile(
+        SafeFileHandle file, [In] byte[] buffer, uint bytesToWrite,
+        out uint bytesWritten, IntPtr overlapped);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool DeviceIoControl(
         SafeFileHandle device, uint ioControlCode,
         [In] byte[] inBuffer, uint inBufferSize,

@@ -6,7 +6,7 @@ namespace HonorPCHelper;
 
 internal sealed record HidDeviceInfo(
     string Path, ushort VendorId, ushort ProductId, ushort UsagePage, ushort Usage,
-    ushort InputReportLength)
+    ushort InputReportLength, ushort OutputReportLength = 0)
 {
     internal SafeFileHandle OpenForReading() => NativeMethods.CreateFile(
         Path, NativeMethods.GenericRead,
@@ -51,7 +51,7 @@ internal static class HidDevice
                 if (!NativeMethods.HidD_GetAttributes(handle, ref attributes))
                     continue;
 
-                ushort usagePage = 0, usage = 0, inputLength = 64;
+                ushort usagePage = 0, usage = 0, inputLength = 64, outputLength = 0;
                 if (NativeMethods.HidD_GetPreparsedData(handle, out var preparsed))
                 {
                     try
@@ -61,6 +61,7 @@ internal static class HidDevice
                             usagePage = caps.UsagePage;
                             usage = caps.Usage;
                             inputLength = caps.InputReportByteLength;
+                            outputLength = caps.OutputReportByteLength;
                         }
                     }
                     finally
@@ -70,7 +71,7 @@ internal static class HidDevice
                 }
 
                 devices.Add(new HidDeviceInfo(path, attributes.VendorId, attributes.ProductId,
-                    usagePage, usage, inputLength));
+                    usagePage, usage, inputLength, outputLength));
             }
         }
         finally
