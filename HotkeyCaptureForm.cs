@@ -21,7 +21,8 @@ internal sealed class HotkeyCaptureForm : Form
     {
         Result = current;
         _defaultHint = L.T("Esc - отмена, Del - отключить сочетание",
-            "Esc - cancel, Del - disable the shortcut");
+            "Esc - cancel, Del - disable the shortcut",
+            "Esc 取消，Del 停用该快捷键");
 
         Text = "Honor PC Helper";
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -52,7 +53,7 @@ internal sealed class HotkeyCaptureForm : Form
             Anchor = AnchorStyles.None,
             Margin = new Padding(3, 10, 3, 10),
             Font = new Font(Font.FontFamily, Font.Size + 3.5f, FontStyle.Bold),
-            Text = L.T("Введите новое сочетание клавиш", "Press the new key combination")
+            Text = L.T("Введите новое сочетание клавиш", "Press the new key combination", "请按下新的组合键")
         };
         _hintLabel = new Label
         {
@@ -127,7 +128,8 @@ internal sealed class HotkeyCaptureForm : Form
         {
             _valueLabel.Text = HotkeyBinding.FormatModifiers(modifiers) + FormatKey(key);
             _hintLabel.Text = L.T("Нужен модификатор: Ctrl, Alt или Win",
-                "A modifier is required: Ctrl, Alt or Win");
+                "A modifier is required: Ctrl, Alt or Win",
+                "需要修饰键：Ctrl、Alt 或 Win");
             return true;
         }
 
@@ -143,7 +145,7 @@ internal sealed class HotkeyCaptureForm : Form
     {
         var modifiers = CurrentModifiers();
         _valueLabel.Text = modifiers == 0
-            ? L.T("Введите новое сочетание клавиш", "Press the new key combination")
+            ? L.T("Введите новое сочетание клавиш", "Press the new key combination", "请按下新的组合键")
             : HotkeyBinding.FormatModifiers(modifiers) + "...";
         _hintLabel.Text = _defaultHint;
     }

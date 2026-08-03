@@ -22,8 +22,8 @@ internal static class DiagnosticsService
         var hasHardwareState = HardwareSensorSnapshot.TryParse(
             state.SensorSnapshot, out var hardwareState) && hardwareState.IsFresh;
         var mode = state.PerformanceModeActive
-            ? L.T("производительный", "performance")
-            : L.T("умный", "smart");
+            ? L.T("производительный", "performance", "高性能")
+            : L.T("умный", "smart", "智能");
         var backlightLevel = hasHardwareState
             ? hardwareState.KeyboardBacklightMode switch
             {
@@ -35,9 +35,9 @@ internal static class DiagnosticsService
             : state.KeyboardBacklight;
         var backlight = backlightLevel switch
         {
-            KeyboardBacklightLevel.Off => L.T("выкл.", "off"),
-            KeyboardBacklightLevel.Low => L.T("слабая", "weak"),
-            KeyboardBacklightLevel.High => L.T("сильная", "strong"),
+            KeyboardBacklightLevel.Off => L.T("выкл.", "off", "关"),
+            KeyboardBacklightLevel.Low => L.T("слабая", "weak", "弱"),
+            KeyboardBacklightLevel.High => L.T("сильная", "strong", "强"),
             _ => "?"
         };
         var protection = hasHardwareState && hardwareState.ChargeStart.HasValue && hardwareState.ChargeEnd.HasValue
@@ -47,19 +47,19 @@ internal static class DiagnosticsService
                 BatteryProtectionMode.Home => "40–70%",
                 BatteryProtectionMode.Office => "70–90%",
                 BatteryProtectionMode.Travel => "95–100%",
-                BatteryProtectionMode.Disabled => L.T("выкл.", "off"),
+                BatteryProtectionMode.Disabled => L.T("выкл.", "off", "关"),
                 _ => "?"
             };
         var text = _buffer ??= new System.Text.StringBuilder(MaxTooltipLength + 32);
         text.Clear();
-        text.Append(L.T("Режим: ", "Mode: ")).Append(mode);
-        text.AppendLine().Append(L.T("Подсветка: ", "Backlight: ")).Append(backlight);
-        text.AppendLine().Append(L.T("Ограничение заряда: ", "Charge limit: ")).Append(protection);
+        text.Append(L.T("Режим: ", "Mode: ", "模式：")).Append(mode);
+        text.AppendLine().Append(L.T("Подсветка: ", "Backlight: ", "背光：")).Append(backlight);
+        text.AppendLine().Append(L.T("Ограничение заряда: ", "Charge limit: ", "充电限制：")).Append(protection);
 
         var power = ReadBatteryPowerWatts();
         if (power.HasValue)
         {
-            text.AppendLine().Append(L.T("Питание: ", "Power: "));
+            text.AppendLine().Append(L.T("Питание: ", "Power: ", "功率："));
             AppendPower(text, power.Value);
         }
 
@@ -69,16 +69,16 @@ internal static class DiagnosticsService
             {
                 text.AppendLine().Append("CPU: ");
                 AppendTemperature(text, hardwareState.CpuTemperature);
-                text.Append(L.T("; батарея: ", "; battery: "));
+                text.Append(L.T("; батарея: ", "; battery: ", "；电池："));
                 AppendTemperature(text, hardwareState.BatteryTemperature);
             }
             if (hardwareState.Fan1Rpm.HasValue || hardwareState.Fan2Rpm.HasValue)
             {
-                text.AppendLine().Append(L.T("Вентиляторы: ", "Fans: "));
+                text.AppendLine().Append(L.T("Вентиляторы: ", "Fans: ", "风扇："));
                 AppendFan(text, hardwareState.Fan1Rpm);
                 text.Append('/');
                 AppendFan(text, hardwareState.Fan2Rpm);
-                text.Append(L.T(" об/мин", " RPM"));
+                text.Append(L.T(" об/мин", " RPM", " 转/分"));
             }
         }
 
@@ -107,13 +107,13 @@ internal static class DiagnosticsService
     {
         if (Math.Abs(watts) < 0.05)
         {
-            text.Append(L.T("0 Вт", "0 W"));
+            text.Append(L.T("0 Вт", "0 W", "0 瓦"));
             return;
         }
 
         if (watts > 0)
             text.Append('+');
-        text.Append(watts.ToString("0.0")).Append(L.T(" Вт", " W"));
+        text.Append(watts.ToString("0.0")).Append(L.T(" Вт", " W", " 瓦"));
     }
 
     // Charge/discharge power in watts: positive while charging, negative while

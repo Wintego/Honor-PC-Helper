@@ -200,9 +200,7 @@ internal static class Program
             var level = HardwareSettings.KeyboardBacklight;
             if (level.HasValue)
                 new KeyboardBacklightController().SetLevel(level.Value);
-            var timeout = HardwareSettings.KeyboardBacklightTimeout;
-            if (timeout.HasValue)
-                new KeyboardBacklightController().SetTimeout(timeout.Value);
+            new KeyboardBacklightController().SetTimeout(HardwareSettings.KeyboardBacklightTimeout);
             var batteryMode = HardwareSettings.BatteryProtection;
             if (batteryMode.HasValue)
                 new BatteryProtectionController().SetMode(batteryMode.Value);

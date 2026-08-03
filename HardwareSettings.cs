@@ -7,6 +7,7 @@ internal static class HardwareSettings
     private const string RegistryPath = @"Software\HonorPCHelper";
     private const string KeyboardBacklightValue = "KeyboardBacklightLevel";
     private const string KeyboardBacklightTimeoutValue = "KeyboardBacklightTimeout";
+    private const ushort DefaultBacklightTimeout = 60;
     private const string PerformanceModeValue = "PerformanceModeActive";
     private const string BatteryProtectionValue = "BatteryProtectionMode";
     private const string PowerUnlockValue = "PowerUnlockEnabled";
@@ -15,6 +16,7 @@ internal static class HardwareSettings
     private const string BacklightOffHourValue = "BacklightOffHour";
     private const string BacklightScheduleLevelValue = "BacklightScheduleLevel";
     private const string TouchpadHapticsValue = "TouchpadHapticsLevel";
+    private const string TouchpadEdgeGesturePrefix = "TouchpadEdgeGesture.";
     private const string PendingHardwareCommandValue = "PendingHardwareCommand";
     private const string SensorSnapshotValue = "SensorSnapshot";
     private const string HotkeyValuePrefix = "Hotkey.";
@@ -108,13 +110,13 @@ internal static class HardwareSettings
             var value = key?.GetValue(BacklightScheduleLevelValue) as string;
             return Enum.TryParse<KeyboardBacklightLevel>(value, out var level) && level != KeyboardBacklightLevel.Off
                 ? level
-                : KeyboardBacklightLevel.High;
+                : KeyboardBacklightLevel.Low;
         }
         set
         {
             using var key = Registry.CurrentUser.CreateSubKey(RegistryPath, true);
             key.SetValue(BacklightScheduleLevelValue,
-                value == KeyboardBacklightLevel.Off ? KeyboardBacklightLevel.High.ToString() : value.ToString());
+                value == KeyboardBacklightLevel.Off ? KeyboardBacklightLevel.Low.ToString() : value.ToString());
         }
     }
 
@@ -171,23 +173,23 @@ internal static class HardwareSettings
         }
     }
 
-    internal static ushort? KeyboardBacklightTimeout
+    /// <summary>
+    /// Таймаут автоотключения подсветки в секундах; 0 - не выключать.
+    /// Если пользователь ничего не выбирал, действует умолчание - 1 минута.
+    /// </summary>
+    internal static ushort KeyboardBacklightTimeout
     {
         get
         {
-            using var key = Registry.CurrentUser.OpenSubKey(RegistryPath);
-            return key?.GetValue(KeyboardBacklightTimeoutValue) is int value
-                && value is >= ushort.MinValue and <= ushort.MaxValue
+            var value = ReadInt(KeyboardBacklightTimeoutValue, DefaultBacklightTimeout);
+            return value is >= ushort.MinValue and <= ushort.MaxValue
                 ? (ushort)value
-                : null;
+                : DefaultBacklightTimeout;
         }
         set
         {
             using var key = Registry.CurrentUser.CreateSubKey(RegistryPath, true);
-            if (value.HasValue)
-                key.SetValue(KeyboardBacklightTimeoutValue, (int)value.Value, RegistryValueKind.DWord);
-            else
-                key.DeleteValue(KeyboardBacklightTimeoutValue, false);
+            key.SetValue(KeyboardBacklightTimeoutValue, (int)value, RegistryValueKind.DWord);
         }
     }
 
@@ -207,6 +209,25 @@ internal static class HardwareSettings
             else
                 key.DeleteValue(TouchpadHapticsValue, false);
         }
+    }
+
+    /// <summary>
+    /// Состояние жеста на краю экрана. null - пользователь его не менял,
+    /// действует умолчание прошивки (жест включён).
+    /// </summary>
+    internal static bool? GetTouchpadEdgeGesture(TouchpadEdgeGesture gesture)
+    {
+        using var key = Registry.CurrentUser.OpenSubKey(RegistryPath);
+        return key?.GetValue(TouchpadEdgeGesturePrefix + gesture) is int value ? value != 0 : null;
+    }
+
+    internal static void SetTouchpadEdgeGesture(TouchpadEdgeGesture gesture, bool? enabled)
+    {
+        using var key = Registry.CurrentUser.CreateSubKey(RegistryPath, true);
+        if (enabled.HasValue)
+            key.SetValue(TouchpadEdgeGesturePrefix + gesture, enabled.Value ? 1 : 0, RegistryValueKind.DWord);
+        else
+            key.DeleteValue(TouchpadEdgeGesturePrefix + gesture, false);
     }
 
     internal static bool PerformanceModeActive

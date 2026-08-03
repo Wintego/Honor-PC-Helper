@@ -79,8 +79,10 @@ internal sealed class HelperApplicationContext : ApplicationContext
             _touchpadService.Start();
             _hidNotification = NativeMethods.RegisterHidDeviceNotification(_window.Handle);
         }
-        // Уровень вибрации живёт в прошивке тачпада и сбрасывается при перезагрузке.
+        // Уровень вибрации и жесты краёв живут в прошивке тачпада
+        // и сбрасываются при перезагрузке.
         TouchpadHapticsController.Reapply();
+        TouchpadGesturesController.Reapply();
         Microsoft.Win32.SystemEvents.PowerModeChanged += OnSystemPowerModeChanged;
         Microsoft.Win32.SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
         _displayNotification = NativeMethods.RegisterPowerSettingNotification(
@@ -100,7 +102,8 @@ internal sealed class HelperApplicationContext : ApplicationContext
             AppLog.Error("Could not start HONOR WMI event monitoring", exception);
             ShowError(L.T(
                 $"Не удалось отслеживать Fn+P: {exception.Message}",
-                $"Failed to monitor Fn+P: {exception.Message}"));
+                $"Failed to monitor Fn+P: {exception.Message}",
+                $"无法监听 Fn+P：{exception.Message}"));
         }
 
         _backlightSchedule.Start();
@@ -147,38 +150,39 @@ internal sealed class HelperApplicationContext : ApplicationContext
         var menu = new NativePopupMenu();
 
         var batterySub = menu.AddSubMenu(
-            L.T("Ограничение заряда", "Charge limit"),
+            L.T("Ограничение заряда", "Charge limit", "充电限制"),
             L.T("Ограничение диапазона заряда для продления срока службы батареи.",
-                "Limit the charge range to extend battery lifespan."));
+                "Limit the charge range to extend battery lifespan.",
+                "限制充电区间，延长电池寿命。"));
         BatteryProtectionMenu.Build(batterySub);
 
         var backlightSub = menu.AddSubMenu(
-            L.T("Подсветка клавиатуры", "Keyboard backlight"),
-            L.T("Уровень подсветки и автоматическое расписание.",
-                "Backlight level and automatic schedule."));
+            L.T("Клавиатура", "Keyboard", "键盘"),
+            L.T("Уровень подсветки, таймаут и автоматическое расписание.",
+                "Backlight level, timeout and automatic schedule.",
+                "背光亮度、超时时间和自动计划。"));
         KeyboardBacklightMenu.Build(backlightSub, _backlightSchedule);
 
         if (TouchpadHapticsController.IsSupported())
         {
-            var hapticsSub = menu.AddSubMenu(
-                L.T("Вибрация тачпада", "Touchpad haptics"),
-                L.T("Интенсивность виброотклика при нажатии на тачпад.",
-                    "Vibration strength when pressing the touchpad."));
-            TouchpadHapticsMenu.Build(hapticsSub);
+            var touchpadSub = menu.AddSubMenu(
+                L.T("Тачпад", "Touchpad", "触控板"),
+                L.T("Интенсивность виброотклика и жесты на краях тачпада.",
+                    "Vibration strength and touchpad edge gestures.",
+                    "振动反馈强度和触控板边缘手势。"));
+            TouchpadMenu.Build(touchpadSub);
         }
 
         PowerUnlockMenu.Build(menu, UpdateTrayIcon);
 
         if (_hotkeys.Enabled)
             BuildHotkeyItems(menu);
-        if (AppConfig.Current.TouchpadBrightnessEnabled)
-            menu.AddItem(L.T("Левый край тачпада: яркость", "Left edge of touchpad: brightness"), null, enabled: false);
         menu.AddSeparator();
         menu.AddItem(
-            L.T("Запускать вместе с Windows", "Start with Windows"),
+            L.T("Запускать вместе с Windows", "Start with Windows", "开机自启动"),
             ToggleStartup,
             @checked: StartupManager.IsEnabled);
-        menu.AddItem(L.T("Выход", "Exit"), ExitThread);
+        menu.AddItem(L.T("Выход", "Exit", "退出"), ExitThread);
 
         return menu;
     }
@@ -188,14 +192,15 @@ internal sealed class HelperApplicationContext : ApplicationContext
     {
         var tooltip = L.T(
             "Клик - задать другое сочетание. Esc - отмена, Del - отключить.",
-            "Click to set a different shortcut. Esc - cancel, Del - disable.");
+            "Click to set a different shortcut. Esc - cancel, Del - disable.",
+            "点击可设置其他快捷键。Esc 取消，Del 停用。");
 
         foreach (var action in HotkeyManager.Actions)
             menu.AddItem(_hotkeys.MenuText(action), () => _hotkeys.Rebind(action), tooltip: tooltip);
 
         if (_hotkeys.HasCustomBindings())
             menu.AddItem(
-                L.T("Сбросить сочетания по умолчанию", "Reset shortcuts to defaults"),
+                L.T("Сбросить сочетания по умолчанию", "Reset shortcuts to defaults", "恢复默认快捷键"),
                 _hotkeys.ResetToDefaults);
     }
 
@@ -217,7 +222,8 @@ internal sealed class HelperApplicationContext : ApplicationContext
         {
             MessageBox.Show(L.T(
                     $"Не удалось изменить автозапуск: {exception.Message}",
-                    $"Failed to change startup setting: {exception.Message}"),
+                    $"Failed to change startup setting: {exception.Message}",
+                    $"无法修改开机自启动设置：{exception.Message}"),
                 "Honor PC Helper", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
@@ -280,8 +286,9 @@ internal sealed class HelperApplicationContext : ApplicationContext
             return;
 
         _touchpadService?.Restart();
-        // Прошивка тачпада забывает уровень вибрации при переподключении.
+        // Прошивка тачпада забывает свои настройки при переподключении.
         TouchpadHapticsController.Reapply();
+        TouchpadGesturesController.Reapply();
     }
 
     // On modern standby (S0) systems the classic Resume power event is unreliable;
@@ -300,6 +307,7 @@ internal sealed class HelperApplicationContext : ApplicationContext
         AppLog.Info("Display turned on, restoring keyboard backlight");
         _ = _backlightSchedule.RestoreAfterResumeAsync();
         TouchpadHapticsController.Reapply();
+        TouchpadGesturesController.Reapply();
     }
 
     private void HandleKeyboardBacklightChanged(KeyboardBacklightLevel level)

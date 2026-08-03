@@ -6,9 +6,9 @@ internal static class TouchpadHapticsMenu
     {
         var current = HardwareSettings.TouchpadHaptics;
 
-        AddLevel(menu, L.T("Низкая", "Low"), TouchpadHapticsLevel.Low, current);
-        AddLevel(menu, L.T("Умеренная", "Medium"), TouchpadHapticsLevel.Medium, current);
-        AddLevel(menu, L.T("Высокая", "High"), TouchpadHapticsLevel.High, current);
+        AddLevel(menu, L.T("Низкая", "Low", "低"), TouchpadHapticsLevel.Low, current);
+        AddLevel(menu, L.T("Умеренная", "Medium", "中"), TouchpadHapticsLevel.Medium, current);
+        AddLevel(menu, L.T("Высокая", "High", "高"), TouchpadHapticsLevel.High, current);
     }
 
     private static void AddLevel(

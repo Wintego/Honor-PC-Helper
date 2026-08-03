@@ -3,126 +3,95 @@ using System.Diagnostics;
 
 namespace HonorPCHelper;
 
+/// <summary>
+/// Подменю трея «Клавиатура»: уровень подсветки, таймаут автоотключения
+/// и ночное расписание. Три группы разделены заголовками-разделителями.
+/// </summary>
 internal static class KeyboardBacklightMenu
 {
+    private static readonly (KeyboardBacklightLevel Level, string Ru, string En, string Zh)[] Levels =
+    [
+        (KeyboardBacklightLevel.Off, "Выключена", "Off", "关闭"),
+        (KeyboardBacklightLevel.Low, "Слабая", "Weak", "弱"),
+        (KeyboardBacklightLevel.High, "Сильная", "Strong", "强")
+    ];
+
+    private static readonly (ushort Seconds, string Ru, string En, string Zh)[] Timeouts =
+    [
+        (0, "Не выключать", "Never", "不关闭"),
+        (15, "15 секунд", "15 seconds", "15 秒"),
+        (30, "30 секунд", "30 seconds", "30 秒"),
+        (60, "1 минута", "1 minute", "1 分钟"),
+        (300, "5 минут", "5 minutes", "5 分钟")
+    ];
+
     internal static void Build(NativePopupMenu menu, BacklightScheduleService scheduleService)
     {
-        var current = HardwareSettings.KeyboardBacklight;
+        AddHeader(menu, "Подсветка", "Backlight", "背光");
+        var level = HardwareSettings.KeyboardBacklight;
+        foreach (var (value, ru, en, zh) in Levels)
+            menu.AddItem(
+                L.T(ru, en, zh),
+                async () => await ApplyLevelAsync(value, scheduleService),
+                @checked: level == value);
 
-        menu.AddItem(
-            L.T("Выключена", "Off"),
-            async () => await ApplyLevelAsync(KeyboardBacklightLevel.Off, scheduleService),
-            @checked: current == KeyboardBacklightLevel.Off);
-        menu.AddItem(
-            L.T("Слабая", "Weak"),
-            async () => await ApplyLevelAsync(KeyboardBacklightLevel.Low, scheduleService),
-            @checked: current == KeyboardBacklightLevel.Low);
-        menu.AddItem(
-            L.T("Сильная", "Strong"),
-            async () => await ApplyLevelAsync(KeyboardBacklightLevel.High, scheduleService),
-            @checked: current == KeyboardBacklightLevel.High);
         menu.AddSeparator();
 
-        BuildTimeoutSubMenu(menu.AddSubMenu(L.T("Таймаут", "Timeout")));
-        BuildScheduleSubMenu(menu.AddSubMenu(L.T("Расписание", "Schedule")), scheduleService);
+        AddHeader(menu, "Таймаут", "Timeout", "超时");
+        var timeout = HardwareSettings.KeyboardBacklightTimeout;
+        foreach (var (seconds, ru, en, zh) in Timeouts)
+            menu.AddItem(
+                L.T(ru, en, zh),
+                async () => await ApplyTimeoutAsync(seconds),
+                @checked: timeout == seconds);
+
+        menu.AddSeparator();
+
+        AddHeader(menu, "Расписание", "Schedule", "计划");
+        BuildScheduleItems(menu, scheduleService);
     }
 
-    private static void BuildTimeoutSubMenu(NativePopupMenu menu)
-    {
-        var current = HardwareSettings.KeyboardBacklightTimeout;
-        AddTimeoutItem(menu, L.T("Не выключать", "Never"), 0, current);
-        AddTimeoutItem(menu, L.T("15 секунд", "15 seconds"), 15, current);
-        AddTimeoutItem(menu, L.T("30 секунд", "30 seconds"), 30, current);
-        AddTimeoutItem(menu, L.T("1 минута", "1 minute"), 60, current);
-        AddTimeoutItem(menu, L.T("5 минут", "5 minutes"), 300, current);
-    }
+    private static void AddHeader(NativePopupMenu menu, string russian, string english, string chinese)
+        => menu.AddItem(L.T(russian, english, chinese), null, enabled: false);
 
-    private static void AddTimeoutItem(
-        NativePopupMenu menu, string text, ushort seconds, ushort? current)
-    {
-        menu.AddItem(
-            text,
-            async () => await ApplyTimeoutAsync(seconds),
-            @checked: current == seconds);
-    }
-
-    private static async Task ApplyTimeoutAsync(ushort seconds)
-    {
-        try
-        {
-            if (await PrivilegedHardware.TryRunBacklightTimeoutTaskAsync(seconds))
-            {
-                HardwareSettings.KeyboardBacklightTimeout = seconds;
-                return;
-            }
-
-            var executable = Environment.ProcessPath
-                ?? throw new InvalidOperationException(L.T(
-                    "Не удалось определить путь к HonorPCHelper.exe.",
-                    "Could not determine the path to HonorPCHelper.exe."));
-            var startInfo = new ProcessStartInfo(executable)
-            {
-                UseShellExecute = true,
-                Verb = "runas"
-            };
-            startInfo.ArgumentList.Add("--set-keyboard-backlight-timeout");
-            startInfo.ArgumentList.Add(seconds.ToString());
-
-            using var process = Process.Start(startInfo)
-                ?? throw new InvalidOperationException(L.T(
-                    "Не удалось изменить таймаут подсветки клавиатуры.",
-                    "Could not change the keyboard backlight timeout."));
-            await process.WaitForExitAsync();
-            if (process.ExitCode == 0)
-                HardwareSettings.KeyboardBacklightTimeout = seconds;
-        }
-        catch (Win32Exception exception) when (exception.NativeErrorCode == 1223)
-        {
-        }
-        catch (Exception exception)
-        {
-            MessageBox.Show(exception.Message, "Honor PC Helper", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    }
-
-    private static void BuildScheduleSubMenu(NativePopupMenu menu, BacklightScheduleService scheduleService)
+    private static void BuildScheduleItems(NativePopupMenu menu, BacklightScheduleService scheduleService)
     {
         menu.AddItem(
-            L.T("Включено", "Enabled"),
+            L.T("Включено", "Enabled", "启用"),
             async () =>
             {
                 HardwareSettings.BacklightScheduleEnabled = !HardwareSettings.BacklightScheduleEnabled;
                 await scheduleService.SettingsChangedAsync();
             },
             @checked: HardwareSettings.BacklightScheduleEnabled);
-        menu.AddSeparator();
 
-        BuildHourSubMenu(menu.AddSubMenu(L.T("Включать в", "Turn on at")),
+        BuildHourSubMenu(
+            menu.AddSubMenu(L.T("Включать в", "Turn on at", "开启时间")),
             HardwareSettings.BacklightOnHour,
-            h => HardwareSettings.BacklightOnHour = h,
+            hour => HardwareSettings.BacklightOnHour = hour,
             scheduleService.SettingsChangedAsync);
-        BuildHourSubMenu(menu.AddSubMenu(L.T("Выключать в", "Turn off at")),
+        BuildHourSubMenu(
+            menu.AddSubMenu(L.T("Выключать в", "Turn off at", "关闭时间")),
             HardwareSettings.BacklightOffHour,
-            h => HardwareSettings.BacklightOffHour = h,
+            hour => HardwareSettings.BacklightOffHour = hour,
             scheduleService.SettingsChangedAsync);
 
-        var levelSub = menu.AddSubMenu(L.T("Уровень при включении", "Level when on"));
-        levelSub.AddItem(
-            L.T("Слабая", "Weak"),
-            async () =>
-            {
-                HardwareSettings.BacklightScheduleLevel = KeyboardBacklightLevel.Low;
-                await scheduleService.SettingsChangedAsync();
-            },
-            @checked: HardwareSettings.BacklightScheduleLevel == KeyboardBacklightLevel.Low);
-        levelSub.AddItem(
-            L.T("Сильная", "Strong"),
-            async () =>
-            {
-                HardwareSettings.BacklightScheduleLevel = KeyboardBacklightLevel.High;
-                await scheduleService.SettingsChangedAsync();
-            },
-            @checked: HardwareSettings.BacklightScheduleLevel == KeyboardBacklightLevel.High);
+        var levelSub = menu.AddSubMenu(L.T("Уровень по расписанию", "Scheduled level", "计划亮度"));
+        var scheduleLevel = HardwareSettings.BacklightScheduleLevel;
+        foreach (var (value, ru, en, zh) in Levels)
+        {
+            if (value == KeyboardBacklightLevel.Off)
+                continue;
+
+            levelSub.AddItem(
+                L.T(ru, en, zh),
+                async () =>
+                {
+                    HardwareSettings.BacklightScheduleLevel = value;
+                    await scheduleService.SettingsChangedAsync();
+                },
+                @checked: scheduleLevel == value);
+        }
     }
 
     private static void BuildHourSubMenu(
@@ -130,59 +99,87 @@ internal static class KeyboardBacklightMenu
     {
         for (var hour = 0; hour < 24; hour++)
         {
-            var h = hour;
+            var value = hour;
             menu.AddItem(
                 $"{hour:00}:00",
                 async () =>
                 {
-                    save(h);
+                    save(value);
                     await settingsChanged();
                 },
                 @checked: hour == current);
         }
     }
 
-    private static async Task ApplyLevelAsync(
+    private static Task ApplyLevelAsync(
         KeyboardBacklightLevel level, BacklightScheduleService scheduleService)
-    {
-        try
-        {
-            if (await PrivilegedHardware.TryRunBacklightTaskAsync(level))
+        => ApplyAsync(
+            () => PrivilegedHardware.TryRunBacklightTaskAsync(level),
+            "--set-keyboard-backlight",
+            level.ToString(),
+            L.T("Не удалось изменить подсветку клавиатуры.",
+                "Could not change the keyboard backlight.",
+                "无法更改键盘背光。"),
+            () =>
             {
                 HardwareSettings.KeyboardBacklight = level;
                 scheduleService.SetManualOverride();
-                return;
-            }
+            });
 
-            var executable = Environment.ProcessPath
-                ?? throw new InvalidOperationException(L.T(
-                    "Не удалось определить путь к HonorPCHelper.exe.",
-                    "Could not determine the path to HonorPCHelper.exe."));
-            var startInfo = new ProcessStartInfo(executable)
-            {
-                UseShellExecute = true,
-                Verb = "runas"
-            };
-            startInfo.ArgumentList.Add("--set-keyboard-backlight");
-            startInfo.ArgumentList.Add(level.ToString());
+    private static Task ApplyTimeoutAsync(ushort seconds)
+        => ApplyAsync(
+            () => PrivilegedHardware.TryRunBacklightTimeoutTaskAsync(seconds),
+            "--set-keyboard-backlight-timeout",
+            seconds.ToString(),
+            L.T("Не удалось изменить таймаут подсветки клавиатуры.",
+                "Could not change the keyboard backlight timeout.",
+                "无法更改键盘背光超时时间。"),
+            () => HardwareSettings.KeyboardBacklightTimeout = seconds);
 
-            using var process = Process.Start(startInfo)
-                ?? throw new InvalidOperationException(L.T(
-                    "Не удалось изменить подсветку клавиатуры.",
-                    "Could not change the keyboard backlight."));
-            await process.WaitForExitAsync();
-            if (process.ExitCode != 0)
-                return;
-
-            HardwareSettings.KeyboardBacklight = level;
-            scheduleService.SetManualOverride();
+    /// <summary>
+    /// Применяет настройку через фоновую задачу с правами администратора,
+    /// а при неудаче - перезапуском процесса с запросом UAC.
+    /// </summary>
+    private static async Task ApplyAsync(
+        Func<Task<bool>> tryPrivilegedTask,
+        string argument,
+        string value,
+        string errorMessage,
+        Action onApplied)
+    {
+        try
+        {
+            if (await tryPrivilegedTask() || await RunElevatedAsync(argument, value, errorMessage))
+                onApplied();
         }
         catch (Win32Exception exception) when (exception.NativeErrorCode == 1223)
         {
+            // Пользователь отменил запрос UAC - молча выходим.
         }
         catch (Exception exception)
         {
             MessageBox.Show(exception.Message, "Honor PC Helper", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
+    }
+
+    private static async Task<bool> RunElevatedAsync(string argument, string value, string errorMessage)
+    {
+        var executable = Environment.ProcessPath
+            ?? throw new InvalidOperationException(L.T(
+                "Не удалось определить путь к HonorPCHelper.exe.",
+                "Could not determine the path to HonorPCHelper.exe.",
+                "无法确定 HonorPCHelper.exe 的路径。"));
+        var startInfo = new ProcessStartInfo(executable)
+        {
+            UseShellExecute = true,
+            Verb = "runas"
+        };
+        startInfo.ArgumentList.Add(argument);
+        startInfo.ArgumentList.Add(value);
+
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException(errorMessage);
+        await process.WaitForExitAsync();
+        return process.ExitCode == 0;
     }
 }

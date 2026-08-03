@@ -30,7 +30,8 @@ internal sealed class HonorWmiSession : IDisposable
         return _instance = instances.Cast<ManagementObject>().FirstOrDefault()
             ?? throw new InvalidOperationException(L.T(
                 "Интерфейс HONOR BIOS WMI не найден.",
-                "HONOR BIOS WMI interface was not found."));
+                "HONOR BIOS WMI interface was not found.",
+                "未找到 HONOR BIOS WMI 接口。"));
     }
 
     internal byte[] Call(ulong command)
@@ -50,7 +51,8 @@ internal sealed class HonorWmiSession : IDisposable
                 var output = (byte[]?)result?["u8Output"]
                     ?? throw new InvalidOperationException(L.T(
                         "BIOS не вернул ответ.",
-                        "BIOS did not return a response."));
+                        "BIOS did not return a response.",
+                        "BIOS 未返回响应。"));
 
                 if (output.Length > 0 && output[0] == 0)
                     return output;
@@ -58,19 +60,22 @@ internal sealed class HonorWmiSession : IDisposable
                 var errorCode = output.Length > 0 ? output[0] : 255;
                 lastError = new HonorWmiCommandException(errorCode, L.T(
                     $"BIOS отклонил команду (код {errorCode}).",
-                    $"BIOS rejected the command (code {errorCode})."));
+                    $"BIOS rejected the command (code {errorCode}).",
+                    $"BIOS 拒绝了该命令（代码 {errorCode}）。"));
             }
             catch (UnauthorizedAccessException exception)
             {
                 throw new InvalidOperationException(L.T(
                     "Для обращения к HONOR BIOS нужны права администратора.",
-                    "Administrator privileges are required to access HONOR BIOS."), exception);
+                    "Administrator privileges are required to access HONOR BIOS.",
+                    "访问 HONOR BIOS 需要管理员权限。"), exception);
             }
             catch (ManagementException exception)
             {
                 lastError = new InvalidOperationException(L.T(
                     "Ошибка HONOR BIOS WMI: ",
-                    "HONOR BIOS WMI error: ") + exception.Message, exception);
+                    "HONOR BIOS WMI error: ",
+                    "HONOR BIOS WMI 错误：") + exception.Message, exception);
                 // Drop the cached instance so the next attempt reconnects.
                 _instance?.Dispose();
                 _instance = null;
@@ -79,7 +84,8 @@ internal sealed class HonorWmiSession : IDisposable
 
         var finalError = lastError ?? new InvalidOperationException(L.T(
             "Команда BIOS не выполнена.",
-            "BIOS command was not executed."));
+            "BIOS command was not executed.",
+            "BIOS 命令未执行。"));
         AppLog.Error($"HONOR WMI command 0x{command:X} failed", finalError);
         throw finalError;
     }

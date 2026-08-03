@@ -34,8 +34,8 @@ internal sealed class BacklightScheduleService : IDisposable
             try
             {
                 await PrivilegedHardware.TryRunBacklightTaskAsync(level);
-                if (HardwareSettings.KeyboardBacklightTimeout is { } timeout)
-                    await PrivilegedHardware.TryRunBacklightTimeoutTaskAsync(timeout);
+                await PrivilegedHardware.TryRunBacklightTimeoutTaskAsync(
+                    HardwareSettings.KeyboardBacklightTimeout);
             }
             catch (Exception exception)
             {

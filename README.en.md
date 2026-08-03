@@ -1,5 +1,7 @@
 # Honor PC Helper
 
+[Русский](README.md) | [中文](README.zh.md)
+
 A Windows system tray utility for managing HONOR laptop hardware features. Uses the official HONOR WMI interface.
 
 ## Features
@@ -8,9 +10,10 @@ A Windows system tray utility for managing HONOR laptop hardware features. Uses 
 - **Keyboard backlight** — on/off, timeout, and auto-enable schedule
 - **Performance** — switch between balanced and performance mode
 - **Monitoring** — view temperatures, fan speeds, and hardware settings in the tray tooltip
-- **Touchpad** — adjust brightness by swiping the left edge, choose haptic feedback strength
+- **Touchpad** — haptic feedback strength, touchpad edge gestures (brightness on the left, volume on the right), adjust brightness by swiping the left edge
 - **Hotkeys** — global shortcuts for window and media control, reassignable from the tray menu
 - **Autostart** — launches with Windows
+- **Interface languages** — Russian, English and Simplified Chinese, selected automatically by the Windows display language
 
 ## Screenshot
 

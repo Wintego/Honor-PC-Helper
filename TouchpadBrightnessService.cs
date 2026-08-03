@@ -35,7 +35,8 @@ internal sealed class TouchpadBrightnessService : IDisposable
                 return;
             if (!StartCore(_cancellation.Token))
                 _reportError(L.T("Совместимый тачпад Honor не найден.",
-                    "No compatible Honor touchpad was found."));
+                    "No compatible Honor touchpad was found.",
+                    "未找到兼容的荣耀触控板。"));
         }
     }
 
@@ -135,9 +136,10 @@ internal sealed class TouchpadBrightnessService : IDisposable
             try
             {
                 var up = direction == 0x01;
-                // Сначала пробуем виртуальный HID-драйвер (нативный OSD Windows).
-                // Если драйвера нет - откат на WMI (без OSD).
-                if (!BrightnessVHid.TrySend(up))
+                // Порядок как у PC Manager: сначала ACPI-WMI Honor - шаг делает прошивка,
+                // Windows сама рисует штатный OSD. Затем виртуальный HID-драйвер.
+                // Последний рубеж - WmiSetBrightness: яркость меняется, но OSD не будет.
+                if (!HonorAcpiBrightness.TryStep(up) && !BrightnessVHid.TrySend(up))
                 {
                     var step = AppConfig.Current.BrightnessStepPercent;
                     BrightnessController.Change(up ? step : -step);

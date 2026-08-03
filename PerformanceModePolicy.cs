@@ -9,7 +9,8 @@ internal static class PerformanceModePolicy
         {
             reason = L.T(
                 "Производительный режим доступен только при подключённом источнике питания.",
-                "Performance mode is available only when AC power is connected.");
+                "Performance mode is available only when AC power is connected.",
+                "仅在连接电源适配器时可使用高性能模式。");
             return false;
         }
 
@@ -17,7 +18,8 @@ internal static class PerformanceModePolicy
         {
             reason = L.T(
                 "Для производительного режима заряд батареи должен быть не менее 20%.",
-                "Performance mode requires at least 20% battery charge.");
+                "Performance mode requires at least 20% battery charge.",
+                "高性能模式要求电池电量不低于 20%。");
             return false;
         }
 

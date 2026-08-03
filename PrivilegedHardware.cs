@@ -111,6 +111,9 @@ internal static class PrivilegedHardware
     internal static bool TryRunPowerUnlockTask(bool enabled)
         => TryRunTask("--apply-power-unlock", enabled.ToString());
 
+    internal static bool TryRunGrantBrightnessAccessTask()
+        => TryRunTask("--grant-brightness-access", "1");
+
     internal static Task<bool> TryRunBacklightTaskAsync(KeyboardBacklightLevel level)
         => Task.Run(() => TryRunBacklightTask(level));
 
@@ -167,6 +170,8 @@ internal static class PrivilegedHardware
             else if (parts[0] == "--apply-power-unlock"
                 && bool.TryParse(parts[1], out var enabled))
                 new PowerUnlockController().SetEnabled(enabled);
+            else if (parts[0] == "--grant-brightness-access")
+                HonorAcpiBrightness.GrantAccess();
             else if (parts[0] == "--read-sensors")
                 HardwareSensorController.ReadAndStore(parts[1]);
             else

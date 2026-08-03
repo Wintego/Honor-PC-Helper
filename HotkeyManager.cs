@@ -64,10 +64,10 @@ internal sealed class HotkeyManager : IDisposable
 
     internal static string Describe(HotkeyAction action) => action switch
     {
-        HotkeyAction.MinimizeWindow => L.T("свернуть окно под курсором", "minimize window under cursor"),
-        HotkeyAction.PlayPause => L.T("воспроизведение/пауза", "play/pause"),
-        HotkeyAction.NextTrack => L.T("следующий трек", "next track"),
-        HotkeyAction.PreviousTrack => L.T("предыдущий трек", "previous track"),
+        HotkeyAction.MinimizeWindow => L.T("свернуть окно под курсором", "minimize window under cursor", "最小化光标所在窗口"),
+        HotkeyAction.PlayPause => L.T("воспроизведение/пауза", "play/pause", "播放/暂停"),
+        HotkeyAction.NextTrack => L.T("следующий трек", "next track", "下一曲"),
+        HotkeyAction.PreviousTrack => L.T("предыдущий трек", "previous track", "上一曲"),
         _ => string.Empty
     };
 
@@ -76,11 +76,12 @@ internal sealed class HotkeyManager : IDisposable
     {
         var binding = GetBinding(action);
         if (binding.IsEmpty)
-            return L.T($"Отключено: {Describe(action)}", $"Disabled: {Describe(action)}");
+            return L.T($"Отключено: {Describe(action)}", $"Disabled: {Describe(action)}", $"已停用：{Describe(action)}");
 
         return _registered.Contains(action)
             ? $"{binding}: {Describe(action)}"
-            : L.T($"{binding}: {Describe(action)} - занято", $"{binding}: {Describe(action)} - in use");
+            : L.T($"{binding}: {Describe(action)} - занято", $"{binding}: {Describe(action)} - in use",
+                $"{binding}：{Describe(action)} - 已被占用");
     }
 
     // Регистрирует каждое сочетание отдельно: занятое другим приложением
@@ -109,7 +110,8 @@ internal sealed class HotkeyManager : IDisposable
         var list = string.Join(", ", failed);
         AppLog.Error($"Hotkeys already in use: {list}");
         _warn(L.T($"Сочетания заняты другим приложением и отключены: {list}",
-            $"Shortcuts are taken by another application and disabled: {list}"));
+            $"Shortcuts are taken by another application and disabled: {list}",
+            $"以下快捷键已被其他程序占用并停用：{list}"));
     }
 
     internal void UnregisterAll()
@@ -139,7 +141,8 @@ internal sealed class HotkeyManager : IDisposable
             {
                 MessageBox.Show(
                     L.T($"Сочетание {binding} уже назначено на действие \"{Describe(conflict)}\".",
-                        $"The shortcut {binding} is already assigned to \"{Describe(conflict)}\"."),
+                        $"The shortcut {binding} is already assigned to \"{Describe(conflict)}\".",
+                        $"快捷键 {binding} 已分配给操作“{Describe(conflict)}”。"),
                     "Honor PC Helper", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
