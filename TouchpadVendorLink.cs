@@ -30,6 +30,7 @@ internal static class TouchpadVendorLink
 {
     internal const byte ReportId = 0x0E;
     internal const byte HapticsCommand = 0x02;
+    /// <summary>Приходит во входящем репорте при свайпе вдоль края, значение - направление.</summary>
     internal const byte GestureEventCommand = 0x03;
     internal const byte EdgeBrightnessCommand = 0x07;
     internal const byte EdgeVolumeCommand = 0x08;
@@ -38,7 +39,8 @@ internal static class TouchpadVendorLink
     private const ushort VendorUsagePage = 0xFF00;
     private const ushort VendorUsage = 0x0001;
 
-    private static readonly (ushort Vendor, ushort Product)[] SupportedDevices =
+    /// <summary>VID/PID тачпадов Honor, с которыми работает vendor-протокол.</summary>
+    internal static readonly (ushort Vendor, ushort Product)[] SupportedDevices =
     [
         (0x27C6, 0x0F9A),
         (0x35CC, 0x0104)

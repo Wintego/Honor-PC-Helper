@@ -32,7 +32,8 @@ internal enum TouchpadEdgeGesture : byte
 /// </summary>
 internal static class TouchpadGesturesController
 {
-    internal static bool IsSupported() => TouchpadVendorLink.IsSupported();
+    private static readonly TouchpadEdgeGesture[] All =
+        [TouchpadEdgeGesture.Brightness, TouchpadEdgeGesture.Volume];
 
     /// <summary>
     /// Включает или выключает жест в прошивке тачпада. Бросает исключение,
@@ -56,7 +57,7 @@ internal static class TouchpadGesturesController
     /// </summary>
     internal static void Reapply()
     {
-        foreach (var gesture in new[] { TouchpadEdgeGesture.Brightness, TouchpadEdgeGesture.Volume })
+        foreach (var gesture in All)
         {
             var enabled = HardwareSettings.GetTouchpadEdgeGesture(gesture);
             if (enabled is null)

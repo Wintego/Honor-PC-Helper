@@ -1,6 +1,3 @@
-using System.ComponentModel;
-using System.Diagnostics;
-
 namespace HonorPCHelper;
 
 /// <summary>
@@ -113,7 +110,7 @@ internal static class KeyboardBacklightMenu
 
     private static Task ApplyLevelAsync(
         KeyboardBacklightLevel level, BacklightScheduleService scheduleService)
-        => ApplyAsync(
+        => HardwareCommand.ApplyAsync(
             () => PrivilegedHardware.TryRunBacklightTaskAsync(level),
             "--set-keyboard-backlight",
             level.ToString(),
@@ -127,7 +124,7 @@ internal static class KeyboardBacklightMenu
             });
 
     private static Task ApplyTimeoutAsync(ushort seconds)
-        => ApplyAsync(
+        => HardwareCommand.ApplyAsync(
             () => PrivilegedHardware.TryRunBacklightTimeoutTaskAsync(seconds),
             "--set-keyboard-backlight-timeout",
             seconds.ToString(),
@@ -135,51 +132,4 @@ internal static class KeyboardBacklightMenu
                 "Could not change the keyboard backlight timeout.",
                 "无法更改键盘背光超时时间。"),
             () => HardwareSettings.KeyboardBacklightTimeout = seconds);
-
-    /// <summary>
-    /// Применяет настройку через фоновую задачу с правами администратора,
-    /// а при неудаче - перезапуском процесса с запросом UAC.
-    /// </summary>
-    private static async Task ApplyAsync(
-        Func<Task<bool>> tryPrivilegedTask,
-        string argument,
-        string value,
-        string errorMessage,
-        Action onApplied)
-    {
-        try
-        {
-            if (await tryPrivilegedTask() || await RunElevatedAsync(argument, value, errorMessage))
-                onApplied();
-        }
-        catch (Win32Exception exception) when (exception.NativeErrorCode == 1223)
-        {
-            // Пользователь отменил запрос UAC - молча выходим.
-        }
-        catch (Exception exception)
-        {
-            MessageBox.Show(exception.Message, "Honor PC Helper", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    }
-
-    private static async Task<bool> RunElevatedAsync(string argument, string value, string errorMessage)
-    {
-        var executable = Environment.ProcessPath
-            ?? throw new InvalidOperationException(L.T(
-                "Не удалось определить путь к HonorPCHelper.exe.",
-                "Could not determine the path to HonorPCHelper.exe.",
-                "无法确定 HonorPCHelper.exe 的路径。"));
-        var startInfo = new ProcessStartInfo(executable)
-        {
-            UseShellExecute = true,
-            Verb = "runas"
-        };
-        startInfo.ArgumentList.Add(argument);
-        startInfo.ArgumentList.Add(value);
-
-        using var process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException(errorMessage);
-        await process.WaitForExitAsync();
-        return process.ExitCode == 0;
-    }
 }

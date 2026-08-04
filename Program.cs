@@ -1,40 +1,58 @@
 namespace HonorPCHelper;
 
-using System.ComponentModel;
-using System.Diagnostics;
-
 internal static class Program
 {
+    /// <summary>
+    /// Применяет одну аппаратную настройку. Возвращает false, если значение
+    /// аргумента не разобрано; при отказе оборудования бросает исключение.
+    /// </summary>
+    private delegate bool HardwareAction(string? value);
+
+    /// <summary>
+    /// Без аргументов приложение работает как значок в трее. С аргументами это
+    /// служебный запуск одной командой:
+    ///
+    /// - --set-*   запуск с повышением прав через UAC: применяет настройку,
+    ///             регистрирует фоновую задачу и показывает ошибку пользователю;
+    /// - --apply-* тот же набор настроек из фоновой задачи, молча;
+    /// - --run-pending-hardware-command  точка входа самой фоновой задачи.
+    /// </summary>
     [STAThread]
     private static int Main(string[] args)
     {
-        if (args.Length == 2 && args[0] == "--set-battery-mode")
-            return SetBatteryMode(args[1]);
-        if (args.Length == 2 && args[0] == "--apply-battery-mode")
-            return ApplyBatteryMode(args[1]);
-        if (args.Length == 2 && args[0] == "--set-power-unlock")
-            return SetPowerUnlock(args[1]);
-        if (args.Length == 2 && args[0] == "--apply-power-unlock")
-            return ApplyPowerUnlock(args[1]);
-        if (args.Length == 2 && args[0] == "--set-keyboard-backlight")
-            return SetKeyboardBacklight(args[1]);
-        if (args.Length == 2 && args[0] == "--apply-keyboard-backlight")
-            return ApplyKeyboardBacklight(args[1]);
-        if (args.Length == 2 && args[0] == "--set-keyboard-backlight-timeout")
-            return SetKeyboardBacklightTimeout(args[1]);
-        if (args.Length == 2 && args[0] == "--apply-keyboard-backlight-timeout")
-            return ApplyKeyboardBacklightTimeout(args[1]);
-        if (args.Length == 2 && args[0] == "--read-sensors")
-            return ReadSensors(args[1]);
-        if (args.Length == 1 && args[0] == "--restore-hardware-settings")
-            return RestoreHardwareSettings();
-        if (args.Length == 1 && args[0] == "--install-privileged-tasks")
-            return InstallPrivilegedTasks();
-        if (args.Length == 1 && args[0] == "--uninstall-privileged-tasks")
-            return UninstallPrivilegedTasks();
-        if (args.Length == 1 && args[0] == "--run-pending-hardware-command")
-            return PrivilegedHardware.RunPendingCommand();
+        if (args.Length == 0)
+            return RunTray();
 
+        var value = args.Length > 1 ? args[1] : null;
+        return args[0] switch
+        {
+            "--set-battery-mode" => Interactive(AlsoRegister(SetBatteryMode), value),
+            "--set-power-unlock" => Interactive(AlsoRegister(SetPowerUnlock), value),
+            "--set-keyboard-backlight" => Interactive(AlsoRegister(SetKeyboardBacklight), value),
+            "--set-keyboard-backlight-timeout" => Interactive(AlsoRegister(SetKeyboardBacklightTimeout), value),
+            "--read-sensors" => Interactive(AlsoRegister(ReadSensors), value),
+
+            "--apply-battery-mode" => Silent(SetBatteryMode, value),
+            "--apply-power-unlock" => Silent(SetPowerUnlock, value),
+            "--apply-keyboard-backlight" => Silent(SetKeyboardBacklight, value),
+            "--apply-keyboard-backlight-timeout" => Silent(SetKeyboardBacklightTimeout, value),
+
+            // Приходит и со значением (через фоновую задачу), и без него,
+            // когда задача ещё не установлена и приложение поднимается через UAC.
+            // Пользователь этот запуск не инициировал, поэтому окно с ошибкой не показываем.
+            "--grant-brightness-access" => Logged(AlsoRegister(GrantBrightnessAccess), value,
+                "Could not grant Honor ACPI brightness access"),
+
+            "--install-privileged-tasks" => Interactive(InstallPrivilegedTasks, value),
+            "--uninstall-privileged-tasks" => Interactive(UninstallPrivilegedTasks, value),
+            "--run-pending-hardware-command" => PrivilegedHardware.RunPendingCommand(),
+
+            _ => RunTray()
+        };
+    }
+
+    private static int RunTray()
+    {
         using var mutex = new Mutex(false, "HonorPCHelper.SingleInstance", out var createdNew);
         if (!createdNew)
             return 0;
@@ -44,13 +62,15 @@ internal static class Program
         return 0;
     }
 
-    private static int ReadSensors(string requestId)
+    /// <summary>
+    /// Пользовательский запуск: об ошибке нужно сообщить, иначе UAC-окно
+    /// просто мигнёт и человек не поймёт, почему настройка не применилась.
+    /// </summary>
+    private static int Interactive(HardwareAction action, string? value)
     {
         try
         {
-            HardwareSensorController.ReadAndStore(requestId);
-            PrivilegedHardware.EnsureRegistered();
-            return 0;
+            return action(value) ? 0 : 2;
         }
         catch (Exception exception)
         {
@@ -59,32 +79,12 @@ internal static class Program
         }
     }
 
-    private static int SetBatteryMode(string value)
+    /// <summary>Запуск из фоновой задачи: интерфейса нет, результат читается по коду возврата.</summary>
+    private static int Silent(HardwareAction action, string? value)
     {
         try
         {
-            if (!Enum.TryParse<BatteryProtectionMode>(value, true, out var mode))
-                return 2;
-
-            new BatteryProtectionController().SetMode(mode);
-            PrivilegedHardware.EnsureRegistered();
-            return 0;
-        }
-        catch (Exception exception)
-        {
-            MessageBox.Show(exception.Message, "Honor PC Helper", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            return 1;
-        }
-    }
-
-    private static int ApplyBatteryMode(string value)
-    {
-        try
-        {
-            if (!Enum.TryParse<BatteryProtectionMode>(value, true, out var mode))
-                return 2;
-            new BatteryProtectionController().SetMode(mode);
-            return 0;
+            return action(value) ? 0 : 2;
         }
         catch
         {
@@ -92,154 +92,93 @@ internal static class Program
         }
     }
 
-    private static int SetPowerUnlock(string value)
+    private static int Logged(HardwareAction action, string? value, string message)
     {
         try
         {
-            if (!bool.TryParse(value, out var enabled))
-                return 2;
-
-            new PowerUnlockController().SetEnabled(enabled);
-            PrivilegedHardware.EnsureRegistered();
-            return 0;
+            return action(value) ? 0 : 2;
         }
         catch (Exception exception)
         {
-            MessageBox.Show(exception.Message, "Honor PC Helper", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            AppLog.Error(message, exception);
             return 1;
         }
     }
 
-    private static int ApplyPowerUnlock(string value)
+    /// <summary>
+    /// Добавляет к действию регистрацию фоновой задачи: раз уж процесс
+    /// поднят с правами администратора, следующий раз можно обойтись без UAC.
+    /// </summary>
+    private static HardwareAction AlsoRegister(HardwareAction action) => value =>
     {
-        try
-        {
-            if (!bool.TryParse(value, out var enabled))
-                return 2;
-            new PowerUnlockController().SetEnabled(enabled);
-            return 0;
-        }
-        catch
-        {
-            return 1;
-        }
+        if (!action(value))
+            return false;
+
+        PrivilegedHardware.EnsureRegistered();
+        return true;
+    };
+
+    private static bool SetBatteryMode(string? value)
+    {
+        if (!Enum.TryParse<BatteryProtectionMode>(value, true, out var mode))
+            return false;
+
+        new BatteryProtectionController().SetMode(mode);
+        return true;
     }
 
-    private static int SetKeyboardBacklight(string value)
+    private static bool SetPowerUnlock(string? value)
     {
-        try
-        {
-            if (!Enum.TryParse<KeyboardBacklightLevel>(value, true, out var level))
-                return 2;
+        if (!bool.TryParse(value, out var enabled))
+            return false;
 
-            new KeyboardBacklightController().SetLevel(level);
-            PrivilegedHardware.EnsureRegistered();
-            return 0;
-        }
-        catch (Exception exception)
-        {
-            MessageBox.Show(exception.Message, "Honor PC Helper", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            return 1;
-        }
+        new PowerUnlockController().SetEnabled(enabled);
+        return true;
     }
 
-    private static int ApplyKeyboardBacklight(string value)
+    private static bool SetKeyboardBacklight(string? value)
     {
-        try
-        {
-            if (!Enum.TryParse<KeyboardBacklightLevel>(value, true, out var level))
-                return 2;
+        if (!Enum.TryParse<KeyboardBacklightLevel>(value, true, out var level))
+            return false;
 
-            new KeyboardBacklightController().SetLevel(level);
-            return 0;
-        }
-        catch
-        {
-            return 1;
-        }
+        new KeyboardBacklightController().SetLevel(level);
+        return true;
     }
 
-    private static int SetKeyboardBacklightTimeout(string value)
+    private static bool SetKeyboardBacklightTimeout(string? value)
     {
-        try
-        {
-            if (!ushort.TryParse(value, out var seconds))
-                return 2;
+        if (!ushort.TryParse(value, out var seconds))
+            return false;
 
-            new KeyboardBacklightController().SetTimeout(seconds);
-            PrivilegedHardware.EnsureRegistered();
-            return 0;
-        }
-        catch (Exception exception)
-        {
-            MessageBox.Show(exception.Message, "Honor PC Helper", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            return 1;
-        }
+        new KeyboardBacklightController().SetTimeout(seconds);
+        return true;
     }
 
-    private static int ApplyKeyboardBacklightTimeout(string value)
+    private static bool ReadSensors(string? requestId)
     {
-        try
-        {
-            if (!ushort.TryParse(value, out var seconds))
-                return 2;
+        if (string.IsNullOrEmpty(requestId))
+            return false;
 
-            new KeyboardBacklightController().SetTimeout(seconds);
-            return 0;
-        }
-        catch
-        {
-            return 1;
-        }
+        HardwareSensorController.ReadAndStore(requestId);
+        return true;
     }
 
-    private static int RestoreHardwareSettings()
+    // Выдаёт текущему пользователю право вызывать ACPI-WMI блок яркости.
+    private static bool GrantBrightnessAccess(string? _)
     {
-        try
-        {
-            var level = HardwareSettings.KeyboardBacklight;
-            if (level.HasValue)
-                new KeyboardBacklightController().SetLevel(level.Value);
-            new KeyboardBacklightController().SetTimeout(HardwareSettings.KeyboardBacklightTimeout);
-            var batteryMode = HardwareSettings.BatteryProtection;
-            if (batteryMode.HasValue)
-                new BatteryProtectionController().SetMode(batteryMode.Value);
-            new PowerUnlockController().SetEnabled(false);
-            HardwareSettings.PowerUnlock = false;
-            HardwareSettings.PerformanceModeActive = false;
-            return 0;
-        }
-        catch
-        {
-            return 1;
-        }
+        HonorAcpiBrightness.GrantAccess();
+        return true;
     }
 
-    private static int InstallPrivilegedTasks()
+    private static bool InstallPrivilegedTasks(string? _)
     {
-        try
-        {
-            PrivilegedHardware.EnsureRegistered();
-            return 0;
-        }
-        catch (Exception exception)
-        {
-            MessageBox.Show(exception.Message, "Honor PC Helper", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            return 1;
-        }
+        PrivilegedHardware.EnsureRegistered();
+        return true;
     }
 
-    private static int UninstallPrivilegedTasks()
+    private static bool UninstallPrivilegedTasks(string? _)
     {
-        try
-        {
-            PrivilegedHardware.RemoveRegistered();
-            return 0;
-        }
-        catch (Exception exception)
-        {
-            MessageBox.Show(exception.Message, "Honor PC Helper", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            return 1;
-        }
+        PrivilegedHardware.RemoveRegistered();
+        return true;
     }
 }

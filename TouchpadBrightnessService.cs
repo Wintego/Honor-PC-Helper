@@ -2,12 +2,9 @@ namespace HonorPCHelper;
 
 internal sealed class TouchpadBrightnessService : IDisposable
 {
-    private const byte GestureIdentifier = 0x0E;
-    private static readonly (ushort Vendor, ushort Product)[] SupportedDevices =
-    [
-        (0x27C6, 0x0F9A),
-        (0x35CC, 0x0104)
-    ];
+    private const byte DirectionUp = 0x01;
+    private const byte DirectionDown = 0x02;
+    private const int RepeatSuppressMilliseconds = 150;
 
     private readonly Action<string> _reportError;
     private readonly Lock _actionLock = new();
@@ -24,7 +21,7 @@ internal sealed class TouchpadBrightnessService : IDisposable
     // Проверяет по интерфейсному пути устройства (WM_DEVICECHANGE), относится ли оно
     // к поддерживаемым тачпадам, чтобы не перезапускать читателей на чужие устройства.
     internal static bool IsSupportedDevicePath(string devicePath)
-        => SupportedDevices.Any(device =>
+        => TouchpadVendorLink.SupportedDevices.Any(device =>
             devicePath.Contains($"vid_{device.Vendor:x4}", StringComparison.OrdinalIgnoreCase));
 
     internal void Start()
@@ -61,7 +58,7 @@ internal sealed class TouchpadBrightnessService : IDisposable
         try
         {
             var candidates = HidDevice.Enumerate()
-                .Where(device => SupportedDevices.Contains((device.VendorId, device.ProductId)))
+                .Where(device => TouchpadVendorLink.SupportedDevices.Contains((device.VendorId, device.ProductId)))
                 .Where(device => device.UsagePage >= 0xFF00)
                 .ToArray();
 
@@ -72,7 +69,10 @@ internal sealed class TouchpadBrightnessService : IDisposable
         }
         catch (Exception exception)
         {
-            _reportError($"Ошибка запуска тачпада: {exception.Message}");
+            _reportError(L.T(
+                $"Ошибка запуска тачпада: {exception.Message}",
+                $"Touchpad startup failed: {exception.Message}",
+                $"触控板启动失败：{exception.Message}"));
             return false;
         }
     }
@@ -103,7 +103,7 @@ internal sealed class TouchpadBrightnessService : IDisposable
             while (!cancellation.IsCancellationRequested)
             {
                 var count = await stream.ReadAsync(buffer, cancellation);
-                if (count >= 3 && buffer[0] == GestureIdentifier)
+                if (count >= 3 && buffer[0] == TouchpadVendorLink.ReportId)
                     ProcessGesture(buffer[1], buffer[2]);
             }
         }
@@ -123,23 +123,25 @@ internal sealed class TouchpadBrightnessService : IDisposable
 
     private void ProcessGesture(byte type, byte direction)
     {
-        if (type != 0x03 || direction is not (0x01 or 0x02))
+        if (type != TouchpadVendorLink.GestureEventCommand
+            || direction is not (DirectionUp or DirectionDown))
             return;
 
         lock (_actionLock)
         {
             var now = Environment.TickCount64;
-            if (_lastGesture.Type == type && _lastGesture.Direction == direction && now - _lastGesture.Time < 150)
+            if (_lastGesture.Type == type && _lastGesture.Direction == direction
+                && now - _lastGesture.Time < RepeatSuppressMilliseconds)
                 return;
             _lastGesture = (type, direction, now);
 
             try
             {
-                var up = direction == 0x01;
+                var up = direction == DirectionUp;
                 // Порядок как у PC Manager: сначала ACPI-WMI Honor - шаг делает прошивка,
-                // Windows сама рисует штатный OSD. Затем виртуальный HID-драйвер.
-                // Последний рубеж - WmiSetBrightness: яркость меняется, но OSD не будет.
-                if (!HonorAcpiBrightness.TryStep(up) && !BrightnessVHid.TrySend(up))
+                // Windows сама рисует штатный OSD. Запасной путь - WmiSetBrightness:
+                // яркость меняется, но OSD не будет.
+                if (!HonorAcpiBrightness.TryStep(up))
                 {
                     var step = AppConfig.Current.BrightnessStepPercent;
                     BrightnessController.Change(up ? step : -step);
@@ -147,7 +149,10 @@ internal sealed class TouchpadBrightnessService : IDisposable
             }
             catch (Exception exception)
             {
-                _reportError($"Не удалось изменить яркость: {exception.Message}");
+                _reportError(L.T(
+                    $"Не удалось изменить яркость: {exception.Message}",
+                    $"Could not change brightness: {exception.Message}",
+                    $"无法调整亮度：{exception.Message}"));
             }
         }
     }

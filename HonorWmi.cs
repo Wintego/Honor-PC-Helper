@@ -57,11 +57,13 @@ internal sealed class HonorWmiSession : IDisposable
                 if (output.Length > 0 && output[0] == 0)
                     return output;
 
+                // BIOS ответил отказом - команда дошла, повторять её незачем.
                 var errorCode = output.Length > 0 ? output[0] : 255;
                 lastError = new HonorWmiCommandException(errorCode, L.T(
                     $"BIOS отклонил команду (код {errorCode}).",
                     $"BIOS rejected the command (code {errorCode}).",
                     $"BIOS 拒绝了该命令（代码 {errorCode}）。"));
+                break;
             }
             catch (UnauthorizedAccessException exception)
             {

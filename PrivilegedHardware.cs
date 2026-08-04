@@ -149,12 +149,19 @@ internal static class PrivilegedHardware
     {
         var command = HardwareSettings.PendingHardwareCommand;
         if (string.IsNullOrEmpty(command))
+        {
+            // Задача успела стартовать уже после того, как вызывающий сдался и снял команду.
+            AppLog.Error("Privileged instance found no pending command");
             return 2;
+        }
 
         HardwareSettings.PendingHardwareCommand = null;
         var parts = command.Split(CommandSeparator);
         if (parts.Length != 2)
+        {
+            AppLog.Error($"Malformed pending hardware command: {command}");
             return 2;
+        }
 
         try
         {

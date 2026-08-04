@@ -13,7 +13,6 @@ internal static partial class NativeMethods
     internal const uint MfGrayed = 0x00000001;
     internal const uint MfDisabled = 0x00000002;
     internal const uint MfChecked = 0x00000008;
-    internal const uint MfUnchecked = 0x00000000;
     internal const uint TpmReturnCmd = 0x0100;
     internal const uint TpmLeftAlign = 0x0000;
     internal const uint TpmTopAlign = 0x0000;
@@ -259,10 +258,6 @@ internal static partial class NativeMethods
     internal static partial bool SetWindowPos(
         IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int width, int height, uint flags);
 
-    [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool ScreenToClient(IntPtr hWnd, ref Point lpPoint);
-
     [LibraryImport("hid.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool HidD_GetAttributes(SafeFileHandle device, ref HiddAttributes attributes);
@@ -317,14 +312,6 @@ internal static partial class NativeMethods
     internal static partial bool WriteFile(
         SafeFileHandle file, [In] byte[] buffer, uint bytesToWrite,
         out uint bytesWritten, IntPtr overlapped);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool DeviceIoControl(
-        SafeFileHandle device, uint ioControlCode,
-        [In] byte[] inBuffer, uint inBufferSize,
-        IntPtr outBuffer, uint outBufferSize,
-        out uint bytesReturned, IntPtr overlapped);
 
     internal static string GetDevicePath(IntPtr set, ref SpDeviceInterfaceData data)
     {

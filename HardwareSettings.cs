@@ -2,6 +2,15 @@ using Microsoft.Win32;
 
 namespace HonorPCHelper;
 
+/// <summary>
+/// Состояние приложения в HKCU\Software\HonorPCHelper.
+///
+/// Ветка открывается один раз и остаётся открытой на всё время работы процесса:
+/// сборка меню трея читает два десятка значений подряд, а открытие ключа
+/// заметно дороже самого чтения. GetValue и SetValue каждый раз обращаются
+/// к реестру, поэтому значения, записанные привилегированным экземпляром
+/// приложения, видны сразу - на этом построен обмен через PendingHardwareCommand.
+/// </summary>
 internal static class HardwareSettings
 {
     private const string RegistryPath = @"Software\HonorPCHelper";
@@ -21,156 +30,91 @@ internal static class HardwareSettings
     private const string SensorSnapshotValue = "SensorSnapshot";
     private const string HotkeyValuePrefix = "Hotkey.";
 
+    // Обращения идут из UI-потока, фоновых задач и обработчика событий WMI,
+    // поэтому доступ к общему ключу сериализуется.
+    private static readonly Lock Gate = new();
+    private static RegistryKey? _key;
+
+    // Вызывается только под Gate.
+    private static RegistryKey Key() => _key ??= Registry.CurrentUser.CreateSubKey(RegistryPath, true);
+
     internal readonly record struct TooltipState(
         string? SensorSnapshot,
         bool PerformanceModeActive,
         KeyboardBacklightLevel? KeyboardBacklight,
         BatteryProtectionMode? BatteryProtection);
 
-    /// <summary>
-    /// Reads every value the tray tooltip needs through a single registry open
-    /// instead of one open per property.
-    /// </summary>
+    /// <summary>Читает всё, что нужно подсказке трея, за один заход.</summary>
     internal static TooltipState ReadTooltipState()
     {
-        using var key = Registry.CurrentUser.OpenSubKey(RegistryPath);
-        if (key is null)
-            return new TooltipState(null, false, null, null);
-
-        var snapshot = key.GetValue(SensorSnapshotValue) as string;
-        var performance = key.GetValue(PerformanceModeValue) is int p && p != 0;
-        var backlight = Enum.TryParse<KeyboardBacklightLevel>(
-            key.GetValue(KeyboardBacklightValue) as string, out var level)
-            ? level
-            : (KeyboardBacklightLevel?)null;
-        var battery = Enum.TryParse<BatteryProtectionMode>(
-            key.GetValue(BatteryProtectionValue) as string, out var mode)
-            ? mode
-            : (BatteryProtectionMode?)null;
-        return new TooltipState(snapshot, performance, backlight, battery);
+        lock (Gate)
+        {
+            var key = Key();
+            return new TooltipState(
+                key.GetValue(SensorSnapshotValue) as string,
+                key.GetValue(PerformanceModeValue) as int? is { } performance && performance != 0,
+                ParseEnum<KeyboardBacklightLevel>(key.GetValue(KeyboardBacklightValue) as string),
+                ParseEnum<BatteryProtectionMode>(key.GetValue(BatteryProtectionValue) as string));
+        }
     }
 
     internal static string? SensorSnapshot
     {
-        get
-        {
-            using var key = Registry.CurrentUser.OpenSubKey(RegistryPath);
-            return key?.GetValue(SensorSnapshotValue) as string;
-        }
-        set
-        {
-            using var key = Registry.CurrentUser.CreateSubKey(RegistryPath, true);
-            if (value is null)
-                key.DeleteValue(SensorSnapshotValue, false);
-            else
-                key.SetValue(SensorSnapshotValue, value, RegistryValueKind.String);
-        }
+        get => ReadString(SensorSnapshotValue);
+        set => WriteString(SensorSnapshotValue, value);
     }
 
     internal static string? PendingHardwareCommand
     {
-        get
-        {
-            using var key = Registry.CurrentUser.OpenSubKey(RegistryPath);
-            return key?.GetValue(PendingHardwareCommandValue) as string;
-        }
-        set
-        {
-            using var key = Registry.CurrentUser.CreateSubKey(RegistryPath, true);
-            if (value is null)
-                key.DeleteValue(PendingHardwareCommandValue, false);
-            else
-                key.SetValue(PendingHardwareCommandValue, value, RegistryValueKind.String);
-        }
+        get => ReadString(PendingHardwareCommandValue);
+        set => WriteString(PendingHardwareCommandValue, value);
     }
 
     internal static bool BacklightScheduleEnabled
     {
-        get => ReadInt(BacklightScheduleEnabledValue, 0) != 0;
+        get => ReadInt(BacklightScheduleEnabledValue) is { } value && value != 0;
         set => WriteInt(BacklightScheduleEnabledValue, value ? 1 : 0);
     }
 
     internal static int BacklightOnHour
     {
-        get => ReadInt(BacklightOnHourValue, 18);
+        get => ReadInt(BacklightOnHourValue) ?? 18;
         set => WriteInt(BacklightOnHourValue, Math.Clamp(value, 0, 23));
     }
 
     internal static int BacklightOffHour
     {
-        get => ReadInt(BacklightOffHourValue, 6);
+        get => ReadInt(BacklightOffHourValue) ?? 6;
         set => WriteInt(BacklightOffHourValue, Math.Clamp(value, 0, 23));
     }
 
+    /// <summary>Уровень, который включает расписание. Off здесь бессмысленно, поэтому заменяется на Low.</summary>
     internal static KeyboardBacklightLevel BacklightScheduleLevel
     {
-        get
-        {
-            using var key = Registry.CurrentUser.OpenSubKey(RegistryPath);
-            var value = key?.GetValue(BacklightScheduleLevelValue) as string;
-            return Enum.TryParse<KeyboardBacklightLevel>(value, out var level) && level != KeyboardBacklightLevel.Off
-                ? level
-                : KeyboardBacklightLevel.Low;
-        }
-        set
-        {
-            using var key = Registry.CurrentUser.CreateSubKey(RegistryPath, true);
-            key.SetValue(BacklightScheduleLevelValue,
-                value == KeyboardBacklightLevel.Off ? KeyboardBacklightLevel.Low.ToString() : value.ToString());
-        }
+        get => ReadEnum<KeyboardBacklightLevel>(BacklightScheduleLevelValue) is { } level
+            && level != KeyboardBacklightLevel.Off
+            ? level
+            : KeyboardBacklightLevel.Low;
+        set => WriteEnum<KeyboardBacklightLevel>(BacklightScheduleLevelValue,
+            value == KeyboardBacklightLevel.Off ? KeyboardBacklightLevel.Low : value);
     }
 
     internal static BatteryProtectionMode? BatteryProtection
     {
-        get
-        {
-            using var key = Registry.CurrentUser.OpenSubKey(RegistryPath);
-            var value = key?.GetValue(BatteryProtectionValue) as string;
-            return Enum.TryParse<BatteryProtectionMode>(value, out var mode) ? mode : null;
-        }
-        set
-        {
-            using var key = Registry.CurrentUser.CreateSubKey(RegistryPath, true);
-            if (value.HasValue)
-                key.SetValue(BatteryProtectionValue, value.Value.ToString());
-            else
-                key.DeleteValue(BatteryProtectionValue, false);
-        }
+        get => ReadEnum<BatteryProtectionMode>(BatteryProtectionValue);
+        set => WriteEnum(BatteryProtectionValue, value);
     }
 
     internal static bool? PowerUnlock
     {
-        get
-        {
-            using var key = Registry.CurrentUser.OpenSubKey(RegistryPath);
-            return key?.GetValue(PowerUnlockValue) is int value ? value != 0 : null;
-        }
-        set
-        {
-            using var key = Registry.CurrentUser.CreateSubKey(RegistryPath, true);
-            if (value.HasValue)
-                key.SetValue(PowerUnlockValue, value.Value ? 1 : 0, RegistryValueKind.DWord);
-            else
-                key.DeleteValue(PowerUnlockValue, false);
-        }
+        get => ReadInt(PowerUnlockValue) is { } value ? value != 0 : null;
+        set => WriteInt(PowerUnlockValue, value.HasValue ? value.Value ? 1 : 0 : null);
     }
 
     internal static KeyboardBacklightLevel? KeyboardBacklight
     {
-        get
-        {
-            using var key = Registry.CurrentUser.OpenSubKey(RegistryPath);
-            var value = key?.GetValue(KeyboardBacklightValue) as string;
-            return Enum.TryParse<KeyboardBacklightLevel>(value, out var level) ? level : null;
-        }
-        set
-        {
-            using var key = Registry.CurrentUser.CreateSubKey(RegistryPath, true);
-            if (value.HasValue)
-                key.SetValue(KeyboardBacklightValue, value.Value.ToString());
-            else
-                key.DeleteValue(KeyboardBacklightValue, false);
-        }
+        get => ReadEnum<KeyboardBacklightLevel>(KeyboardBacklightValue);
+        set => WriteEnum(KeyboardBacklightValue, value);
     }
 
     /// <summary>
@@ -179,36 +123,22 @@ internal static class HardwareSettings
     /// </summary>
     internal static ushort KeyboardBacklightTimeout
     {
-        get
-        {
-            var value = ReadInt(KeyboardBacklightTimeoutValue, DefaultBacklightTimeout);
-            return value is >= ushort.MinValue and <= ushort.MaxValue
-                ? (ushort)value
-                : DefaultBacklightTimeout;
-        }
-        set
-        {
-            using var key = Registry.CurrentUser.CreateSubKey(RegistryPath, true);
-            key.SetValue(KeyboardBacklightTimeoutValue, (int)value, RegistryValueKind.DWord);
-        }
+        get => ReadInt(KeyboardBacklightTimeoutValue) is { } value and >= 0 and <= ushort.MaxValue
+            ? (ushort)value
+            : DefaultBacklightTimeout;
+        set => WriteInt(KeyboardBacklightTimeoutValue, value);
     }
 
     internal static TouchpadHapticsLevel? TouchpadHaptics
     {
-        get
-        {
-            using var key = Registry.CurrentUser.OpenSubKey(RegistryPath);
-            var value = key?.GetValue(TouchpadHapticsValue) as string;
-            return Enum.TryParse<TouchpadHapticsLevel>(value, out var level) ? level : null;
-        }
-        set
-        {
-            using var key = Registry.CurrentUser.CreateSubKey(RegistryPath, true);
-            if (value.HasValue)
-                key.SetValue(TouchpadHapticsValue, value.Value.ToString());
-            else
-                key.DeleteValue(TouchpadHapticsValue, false);
-        }
+        get => ReadEnum<TouchpadHapticsLevel>(TouchpadHapticsValue);
+        set => WriteEnum(TouchpadHapticsValue, value);
+    }
+
+    internal static bool PerformanceModeActive
+    {
+        get => ReadInt(PerformanceModeValue) is { } value && value != 0;
+        set => WriteInt(PerformanceModeValue, value ? 1 : 0);
     }
 
     /// <summary>
@@ -216,62 +146,60 @@ internal static class HardwareSettings
     /// действует умолчание прошивки (жест включён).
     /// </summary>
     internal static bool? GetTouchpadEdgeGesture(TouchpadEdgeGesture gesture)
-    {
-        using var key = Registry.CurrentUser.OpenSubKey(RegistryPath);
-        return key?.GetValue(TouchpadEdgeGesturePrefix + gesture) is int value ? value != 0 : null;
-    }
+        => ReadInt(TouchpadEdgeGesturePrefix + gesture) is { } value ? value != 0 : null;
 
     internal static void SetTouchpadEdgeGesture(TouchpadEdgeGesture gesture, bool? enabled)
-    {
-        using var key = Registry.CurrentUser.CreateSubKey(RegistryPath, true);
-        if (enabled.HasValue)
-            key.SetValue(TouchpadEdgeGesturePrefix + gesture, enabled.Value ? 1 : 0, RegistryValueKind.DWord);
-        else
-            key.DeleteValue(TouchpadEdgeGesturePrefix + gesture, false);
-    }
-
-    internal static bool PerformanceModeActive
-    {
-        get
-        {
-            using var key = Registry.CurrentUser.OpenSubKey(RegistryPath);
-            return key?.GetValue(PerformanceModeValue) is int value && value != 0;
-        }
-        set
-        {
-            using var key = Registry.CurrentUser.CreateSubKey(RegistryPath, true);
-            key.SetValue(PerformanceModeValue, value ? 1 : 0, RegistryValueKind.DWord);
-        }
-    }
+        => WriteInt(TouchpadEdgeGesturePrefix + gesture, enabled.HasValue ? enabled.Value ? 1 : 0 : null);
 
     /// <summary>
     /// Пользовательское сочетание клавиш для действия. null - значение не задавалось,
     /// действует умолчание; "None" - пользователь отключил сочетание.
     /// </summary>
-    internal static string? GetHotkey(string action)
-    {
-        using var key = Registry.CurrentUser.OpenSubKey(RegistryPath);
-        return key?.GetValue(HotkeyValuePrefix + action) as string;
-    }
+    internal static string? GetHotkey(string action) => ReadString(HotkeyValuePrefix + action);
 
     internal static void SetHotkey(string action, string? value)
+        => WriteString(HotkeyValuePrefix + action, value);
+
+    private static string? ReadString(string name)
     {
-        using var key = Registry.CurrentUser.CreateSubKey(RegistryPath, true);
-        if (value is null)
-            key.DeleteValue(HotkeyValuePrefix + action, false);
-        else
-            key.SetValue(HotkeyValuePrefix + action, value, RegistryValueKind.String);
+        lock (Gate)
+            return Key().GetValue(name) as string;
     }
 
-    private static int ReadInt(string name, int defaultValue)
+    private static void WriteString(string name, string? value)
     {
-        using var key = Registry.CurrentUser.OpenSubKey(RegistryPath);
-        return key?.GetValue(name) is int value ? value : defaultValue;
+        lock (Gate)
+        {
+            if (value is null)
+                Key().DeleteValue(name, false);
+            else
+                Key().SetValue(name, value, RegistryValueKind.String);
+        }
     }
 
-    private static void WriteInt(string name, int value)
+    private static int? ReadInt(string name)
     {
-        using var key = Registry.CurrentUser.CreateSubKey(RegistryPath, true);
-        key.SetValue(name, value, RegistryValueKind.DWord);
+        lock (Gate)
+            return Key().GetValue(name) as int?;
     }
+
+    private static void WriteInt(string name, int? value)
+    {
+        lock (Gate)
+        {
+            if (value is null)
+                Key().DeleteValue(name, false);
+            else
+                Key().SetValue(name, value.Value, RegistryValueKind.DWord);
+        }
+    }
+
+    private static T? ReadEnum<T>(string name) where T : struct, Enum
+        => ParseEnum<T>(ReadString(name));
+
+    private static void WriteEnum<T>(string name, T? value) where T : struct, Enum
+        => WriteString(name, value?.ToString());
+
+    private static T? ParseEnum<T>(string? value) where T : struct, Enum
+        => Enum.TryParse<T>(value, out var parsed) ? parsed : null;
 }

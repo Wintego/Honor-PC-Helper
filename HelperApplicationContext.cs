@@ -112,10 +112,10 @@ internal sealed class HelperApplicationContext : ApplicationContext
 
     protected override void Dispose(bool disposing)
     {
-        _hotkeys.Dispose();
         if (disposing)
         {
             _disposed = true;
+            _hotkeys.Dispose();
             _touchpadService?.Dispose();
             _powerModeEvents?.Dispose();
             _backlightSchedule.Dispose();

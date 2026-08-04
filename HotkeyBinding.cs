@@ -23,21 +23,7 @@ internal readonly record struct HotkeyBinding(uint Modifiers, uint VirtualKey)
     internal uint RegistrationModifiers => Modifiers | ModNoRepeat;
 
     public override string ToString()
-    {
-        if (IsEmpty)
-            return DisabledToken;
-
-        var text = new System.Text.StringBuilder(24);
-        if ((Modifiers & ModControl) != 0)
-            text.Append("Ctrl+");
-        if ((Modifiers & ModAlt) != 0)
-            text.Append("Alt+");
-        if ((Modifiers & ModShift) != 0)
-            text.Append("Shift+");
-        if ((Modifiers & ModWin) != 0)
-            text.Append("Win+");
-        return text.Append(KeyName(VirtualKey)).ToString();
-    }
+        => IsEmpty ? DisabledToken : FormatModifiers(Modifiers) + KeyName(VirtualKey);
 
     /// <summary>Текст удерживаемых модификаторов без основной клавиши: "Ctrl+Alt+".</summary>
     internal static string FormatModifiers(uint modifiers)

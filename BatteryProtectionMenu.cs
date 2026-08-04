@@ -1,6 +1,3 @@
-using System.ComponentModel;
-using System.Diagnostics;
-
 namespace HonorPCHelper;
 
 internal static class BatteryProtectionMenu
@@ -44,46 +41,13 @@ internal static class BatteryProtectionMenu
                 "充至 100% 停止充电，降至 95% 恢复充电。"));
     }
 
-    private static async Task ApplyModeAsync(BatteryProtectionMode mode)
-    {
-        try
-        {
-            if (await PrivilegedHardware.TryRunBatteryTaskAsync(mode))
-            {
-                HardwareSettings.BatteryProtection = mode;
-                return;
-            }
-
-            var executable = Environment.ProcessPath
-                ?? throw new InvalidOperationException(L.T(
-                    "Не удалось определить путь к HonorPCHelper.exe.",
-                    "Could not determine the path to HonorPCHelper.exe.",
-                    "无法确定 HonorPCHelper.exe 的路径。"));
-            var startInfo = new ProcessStartInfo(executable)
-            {
-                UseShellExecute = true,
-                Verb = "runas"
-            };
-            startInfo.ArgumentList.Add("--set-battery-mode");
-            startInfo.ArgumentList.Add(mode.ToString());
-
-            using var process = Process.Start(startInfo)
-                ?? throw new InvalidOperationException(L.T(
-                    "Не удалось запустить настройку батареи.",
-                    "Could not start battery configuration.",
-                    "无法启动电池设置。"));
-            await process.WaitForExitAsync();
-            if (process.ExitCode != 0)
-                return;
-
-            HardwareSettings.BatteryProtection = mode;
-        }
-        catch (Win32Exception exception) when (exception.NativeErrorCode == 1223)
-        {
-        }
-        catch (Exception exception)
-        {
-            MessageBox.Show(exception.Message, "Honor PC Helper", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    }
+    private static Task ApplyModeAsync(BatteryProtectionMode mode)
+        => HardwareCommand.ApplyAsync(
+            () => PrivilegedHardware.TryRunBatteryTaskAsync(mode),
+            "--set-battery-mode",
+            mode.ToString(),
+            L.T("Не удалось запустить настройку батареи.",
+                "Could not start battery configuration.",
+                "无法启动电池设置。"),
+            () => HardwareSettings.BatteryProtection = mode);
 }
