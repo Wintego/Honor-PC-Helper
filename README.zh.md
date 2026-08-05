@@ -1,6 +1,6 @@
 # Honor PC Helper
 
-[Русский](README.md) | [English](README.en.md)
+[English](README.md) | [Русский](README.ru.md)
 
 用于从 Windows 系统托盘管理 HONOR 笔记本硬件功能的小工具。基于 HONOR 官方 WMI 接口。
 

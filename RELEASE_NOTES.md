@@ -1,7 +1,7 @@
-## Что нового
+## What's new
 
-- Яркость жестом по левому краю тачпада больше не требует виртуального HID-драйвера: работает штатный путь через ACPI-WMI, системный OSD Windows показывается как прежде. Папка `driver` и её установка больше не нужны.
-- Меню трея открывается быстрее: настройки читаются из уже открытой ветки реестра вместо переоткрытия на каждое значение.
-- Исправлена выдача прав на ACPI-доступ к яркости: запрос через UAC завершался молча и ничего не менял.
-- Команда, отклонённая BIOS, больше не отправляется повторно.
-- Сообщения об ошибках тачпада переведены на английский и китайский.
+- Left-edge touchpad brightness no longer requires the virtual HID driver: it goes through the native ACPI-WMI path and Windows still shows its usual OSD. The `driver` folder and its installation are gone.
+- The tray menu opens faster: settings are read from an already open registry key instead of reopening it for every value.
+- Fixed granting ACPI brightness access rights: the UAC prompt finished silently and changed nothing.
+- A command rejected by the BIOS is no longer retried.
+- Touchpad error messages are now translated into English and Chinese.

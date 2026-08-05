@@ -1,43 +1,43 @@
 # Honor PC Helper
 
-[English](README.en.md) | [中文](README.zh.md)
+[Русский](README.ru.md) | [中文](README.zh.md)
 
-Windows-утилита для управления аппаратными функциями ноутбуков HONOR из системного трея. Использует фирменный WMI-интерфейс HONOR.
+A Windows system tray utility for managing HONOR laptop hardware features. Uses the official HONOR WMI interface.
 
-## Возможности
+## Features
 
-- **Батарея** — ограничение диапазона заряда (продлевает срок службы)
-- **Подсветка клавиатуры** — включение/выключение, таймаут погасания, расписание автовключения
-- **Производительность** — переключение между умным (balanced) и производительным режимом
-- **Мониторинг** — отображение температур, оборотов вентиляторов и настроек в подсказке трея
-- **Тачпад** — интенсивность виброотклика, жесты на краях тачпада (яркость слева, громкость справа), изменение яркости движением по левому краю
-- **Горячие клавиши** — глобальные сочетания для окон и мультимедиа, переназначаются из меню трея
-- **Автозапуск** — старт вместе с Windows
-- **Языки интерфейса** — русский, английский и упрощённый китайский, выбираются автоматически по языку Windows
+- **Battery** — charge range limiter (extends battery lifespan)
+- **Keyboard backlight** — on/off, timeout, and auto-enable schedule
+- **Performance** — switch between balanced and performance mode
+- **Monitoring** — view temperatures, fan speeds, and hardware settings in the tray tooltip
+- **Touchpad** — haptic feedback strength, touchpad edge gestures (brightness on the left, volume on the right), adjust brightness by swiping the left edge
+- **Hotkeys** — global shortcuts for window and media control, reassignable from the tray menu
+- **Autostart** — launches with Windows
+- **Interface languages** — Russian, English and Simplified Chinese, selected automatically by the Windows display language
 
-## Скриншот
+## Screenshot
 
-![Honor PC Helper](Assets/Screenshot.png)
+![Honor PC Helper](Assets/Screenshot-en.png)
 
-## Использование
+## Usage
 
-Скачайте `HonorPCHelper.exe` из [последнего релиза](https://github.com/Wintego/honor-pc-helper/releases/latest) и запустите. Установка не требуется.
+Download `HonorPCHelper.exe` from the [latest release](https://github.com/Wintego/honor-pc-helper/releases/latest) and run it. No installation required.
 
-При первом изменении аппаратной настройки Windows запросит права администратора для создания служебной задачи.
+The first time you change a hardware setting, Windows will ask for administrator privileges to create a scheduled task.
 
-Приложение рассчитано на **Windows x64**. Доступность функций зависит от модели ноутбука HONOR.
+Requires **Windows x64**. Feature availability depends on the HONOR laptop model.
 
-## Горячие клавиши
+## Hotkeys
 
-По умолчанию: `Alt+M` — свернуть окно под курсором, `Alt+X` — воспроизведение/пауза, `Alt+C` — следующий трек, `Alt+Z` — предыдущий трек.
+Defaults: `Alt+M` — minimize the window under the cursor, `Alt+X` — play/pause, `Alt+C` — next track, `Alt+Z` — previous track.
 
-Чтобы изменить сочетание, кликните по нужному пункту в меню трея и нажмите новую комбинацию. Нужен хотя бы один модификатор — Ctrl, Alt или Win. `Esc` отменяет ввод, `Del` отключает сочетание. Изменения применяются сразу и сохраняются в реестре; пункт «Сбросить сочетания по умолчанию» возвращает исходные значения.
+To change a shortcut, click the matching item in the tray menu and press the new combination. At least one modifier is required — Ctrl, Alt or Win. `Esc` cancels, `Del` disables the shortcut. Changes apply immediately and are stored in the registry; the "Reset shortcuts to defaults" item restores the original values.
 
-Если комбинация занята другим приложением, приложение сообщит об этом всплывающей подсказкой, а пункт меню будет помечен как «занято».
+If a combination is already taken by another application, a balloon tip reports it and the menu item is marked as "in use".
 
-## Настройка
+## Configuration
 
-Файл настроек необязателен. Чтобы изменить значения по умолчанию, создайте `config.json` рядом с exe:
+The settings file is optional. To override the defaults, create a `config.json` next to the exe:
 
 ```json
 {
@@ -48,14 +48,14 @@ Windows-утилита для управления аппаратными фун
 }
 ```
 
-Изменения применяются после перезапуска приложения.
+Changes take effect after restarting the application.
 
-## Сборка из исходников
+## Building from source
 
-Требуется [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0):
+Requires [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0):
 
 ```powershell
 .\build.ps1
 ```
 
-Готовый файл появится в `dist\HonorPCHelper.exe`.
+The output file will be placed in `dist\HonorPCHelper.exe`.
