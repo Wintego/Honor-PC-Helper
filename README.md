@@ -23,20 +23,6 @@ A single portable `.exe`: no installer, no background services, no telemetry.
 - **Autostart** — launches with Windows
 - **Interface languages** — English, Russian and Simplified Chinese, selected automatically from the Windows display language
 
-## Honor PC Helper vs HONOR PC Manager
-
-| | Honor PC Helper | HONOR PC Manager |
-| --- | --- | --- |
-| Distribution | single portable exe, open source | vendor installer, closed source |
-| Battery charge limit | yes | yes |
-| Keyboard backlight and timeout | yes | yes |
-| Performance mode | yes | yes |
-| Backlight schedule, touchpad edge gestures, remappable hotkeys | yes | no |
-| Driver and firmware updates | no | yes |
-| Phone multi-screen, MagicRing, file sharing | no | yes |
-
-Keep PC Manager if you need driver updates or the phone integration; run Honor PC Helper if all you want is the hardware controls in the tray. The PC Manager feature set varies by version and region.
-
 ## Requirements
 
 - **Windows 10 or 11, x64**
