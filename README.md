@@ -6,7 +6,7 @@
 [![Downloads](https://img.shields.io/github/downloads/Wintego/Honor-PC-Helper/total)](https://github.com/Wintego/Honor-PC-Helper/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011%20x64-blue)](#requirements)
 
-**Honor PC Helper** is a free, open-source Windows tray utility that controls HONOR MagicBook hardware: **battery charge limit**, **keyboard backlight**, **performance mode**, **touchpad haptics and edge gestures**, and **global hotkeys**. It talks to the HONOR BIOS WMI interface directly — the same interface HONOR PC Manager uses — so it works as a lightweight PC Manager alternative on a laptop where you would rather not install the vendor suite.
+**Honor PC Helper** is a lightweight open-source **alternative to HONOR PC Manager**: a Windows tray utility that controls HONOR MagicBook hardware — **battery charge limit**, **keyboard backlight**, **performance mode**, **touchpad haptics and edge gestures**, **global hotkeys**. It talks to the HONOR BIOS WMI interface directly, the same interface PC Manager uses, so you get the hardware settings without installing the vendor suite.
 
 A single portable `.exe`: no installer, no background services, no telemetry.
 
@@ -22,6 +22,20 @@ A single portable `.exe`: no installer, no background services, no telemetry.
 - **Global hotkeys** — window and media shortcuts, reassignable from the tray menu
 - **Autostart** — launches with Windows
 - **Interface languages** — English, Russian and Simplified Chinese, selected automatically from the Windows display language
+
+## Honor PC Helper vs HONOR PC Manager
+
+| | Honor PC Helper | HONOR PC Manager |
+| --- | --- | --- |
+| Distribution | single portable exe, open source | vendor installer, closed source |
+| Battery charge limit | yes | yes |
+| Keyboard backlight and timeout | yes | yes |
+| Performance mode | yes | yes |
+| Backlight schedule, touchpad edge gestures, remappable hotkeys | yes | no |
+| Driver and firmware updates | no | yes |
+| Phone multi-screen, MagicRing, file sharing | no | yes |
+
+Keep PC Manager if you need driver updates or the phone integration; run Honor PC Helper if all you want is the hardware controls in the tray. The PC Manager feature set varies by version and region.
 
 ## Requirements
 
@@ -73,9 +87,13 @@ Open the tray menu, pick **Battery** and choose a charge range. The thresholds a
 
 Use the **Keyboard backlight** submenu: turn it on or off and set the idle timeout. A schedule can also enable the backlight automatically in the evening.
 
-### Is this a HONOR PC Manager replacement?
+### Is there a lightweight alternative to HONOR PC Manager?
 
-For hardware settings, yes — charge limit, backlight, performance mode and touchpad behaviour. It does not update drivers and it does not do phone-to-PC multi-screen collaboration; keep PC Manager if you need those.
+That is what this project is. Honor PC Helper covers the hardware settings — charge limit, backlight, performance mode, touchpad behaviour — from a single portable exe, with no installer and no background services. It does not update drivers and it does not do phone-to-PC multi-screen collaboration.
+
+### Can I uninstall HONOR PC Manager and use this instead?
+
+Yes, if you only used PC Manager for hardware settings. The values it wrote (charge thresholds, backlight timeout) live in the BIOS and stay in effect; Honor PC Helper reads and rewrites them through the same WMI interface. Reinstall PC Manager whenever you need driver updates or MagicRing.
 
 ### Does it need administrator rights?
 
