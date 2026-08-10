@@ -9,7 +9,7 @@ namespace HonorPCHelper;
 // Тем же путём идёт Honor PC Manager (снято хуком IWbemServices::ExecMethod в MBAMessageCenter.exe).
 // Значение меняет EC/прошивка, поэтому Windows рисует свой штатный OSD - в отличие от
 // WmiMonitorBrightnessMethods.WmiSetBrightness, который OSD не вызывает.
-// Шаг задаёт прошивка (10%), поэтому BrightnessStepPercent на этот путь не влияет.
+// Шаг задаёт прошивка (10%), поэтому запасной шаг на этот путь не влияет.
 internal static class HonorAcpiBrightness
 {
     private const string Namespace = @"root\WMI";

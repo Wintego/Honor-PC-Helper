@@ -5,6 +5,9 @@ internal sealed class TouchpadBrightnessService : IDisposable
     private const byte DirectionUp = 0x01;
     private const byte DirectionDown = 0x02;
     private const int RepeatSuppressMilliseconds = 150;
+    // Шаг запасного пути WmiSetBrightness: мельче прошивочных 10%,
+    // чтобы движение по краю тачпада меняло яркость плавно.
+    private const int BrightnessStepPercent = 3;
 
     private readonly Action<string> _reportError;
     private readonly Lock _actionLock = new();
@@ -142,10 +145,7 @@ internal sealed class TouchpadBrightnessService : IDisposable
                 // Windows сама рисует штатный OSD. Запасной путь - WmiSetBrightness:
                 // яркость меняется, но OSD не будет.
                 if (!HonorAcpiBrightness.TryStep(up))
-                {
-                    var step = AppConfig.Current.BrightnessStepPercent;
-                    BrightnessController.Change(up ? step : -step);
-                }
+                    BrightnessController.Change(up ? BrightnessStepPercent : -BrightnessStepPercent);
             }
             catch (Exception exception)
             {

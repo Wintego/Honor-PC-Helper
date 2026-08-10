@@ -39,20 +39,6 @@ Feature availability depends on the model and BIOS version: touchpad haptics onl
 
 The first time you change a hardware setting, Windows asks for administrator privileges to create a scheduled task. After that the app runs without elevation prompts.
 
-## Configuration
-
-The settings file is optional. To override the defaults, create a `config.json` next to the exe:
-
-```json
-{
-  "brightnessStepPercent": 5,
-  "sensorRefreshIntervalMs": 5000,
-  "touchpadBrightnessEnabled": true
-}
-```
-
-Changes take effect after restarting the application.
-
 ## FAQ
 
 ### How do I limit battery charging on a HONOR MagicBook without PC Manager?

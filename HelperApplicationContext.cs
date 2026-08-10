@@ -2,7 +2,7 @@ namespace HonorPCHelper;
 
 internal sealed class HelperApplicationContext : ApplicationContext
 {
-    private static readonly int SensorRefreshIntervalMilliseconds = AppConfig.Current.SensorRefreshIntervalMs;
+    private const int SensorRefreshIntervalMilliseconds = 5_000;
     // Мышь над иконкой трея генерирует поток событий, а сборка подсказки читает
     // реестр и WMI - поэтому обновление ограничено по частоте.
     private const int TooltipMinIntervalMilliseconds = 750;
@@ -12,7 +12,7 @@ internal sealed class HelperApplicationContext : ApplicationContext
     private readonly NotifyIcon _notifyIcon;
     private readonly System.Windows.Forms.Timer _trayHoverTimer;
     private readonly IntPtr _tooltipHandle;
-    private readonly TouchpadBrightnessService? _touchpadService;
+    private readonly TouchpadBrightnessService _touchpadService;
     private readonly PowerModeEventService? _powerModeEvents;
     private readonly BacklightScheduleService _backlightSchedule;
     private Icon? _trayIcon;
@@ -69,12 +69,9 @@ internal sealed class HelperApplicationContext : ApplicationContext
         _deviceChangeTimer = new System.Windows.Forms.Timer { Interval = 1_000 };
         _deviceChangeTimer.Tick += OnDeviceChangeTimerTick;
 
-        if (AppConfig.Current.TouchpadBrightnessEnabled)
-        {
-            _touchpadService = new TouchpadBrightnessService(ShowError);
-            _touchpadService.Start();
-            _hidNotification = NativeMethods.RegisterHidDeviceNotification(_window.Handle);
-        }
+        _touchpadService = new TouchpadBrightnessService(ShowError);
+        _touchpadService.Start();
+        _hidNotification = NativeMethods.RegisterHidDeviceNotification(_window.Handle);
         // Уровень вибрации и жесты краёв живут в прошивке тачпада
         // и сбрасываются при перезагрузке.
         TouchpadHapticsController.Reapply();
@@ -111,7 +108,7 @@ internal sealed class HelperApplicationContext : ApplicationContext
         if (disposing)
         {
             _disposed = true;
-            _touchpadService?.Dispose();
+            _touchpadService.Dispose();
             _powerModeEvents?.Dispose();
             _backlightSchedule.Dispose();
             HideNativeTooltip();
@@ -240,7 +237,7 @@ internal sealed class HelperApplicationContext : ApplicationContext
     // Дебаунс таймером: система шлёт пачку событий на одно физическое подключение.
     private void OnHidDeviceChange(string devicePath)
     {
-        if (_disposed || _touchpadService is null || !TouchpadBrightnessService.IsSupportedDevicePath(devicePath))
+        if (_disposed || !TouchpadBrightnessService.IsSupportedDevicePath(devicePath))
             return;
 
         _deviceChangeTimer.Stop();
@@ -253,7 +250,7 @@ internal sealed class HelperApplicationContext : ApplicationContext
         if (_disposed)
             return;
 
-        _touchpadService?.Restart();
+        _touchpadService.Restart();
         // Прошивка тачпада забывает свои настройки при переподключении.
         TouchpadHapticsController.Reapply();
         TouchpadGesturesController.Reapply();

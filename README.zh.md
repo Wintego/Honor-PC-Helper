@@ -39,20 +39,6 @@
 
 首次修改硬件设置时，Windows 会请求管理员权限以创建计划任务。之后程序运行不再弹出 UAC 提示。
 
-## 配置
-
-配置文件是可选的。如需修改默认值，请在 exe 同级目录创建 `config.json`：
-
-```json
-{
-  "brightnessStepPercent": 5,
-  "sensorRefreshIntervalMs": 5000,
-  "touchpadBrightnessEnabled": true
-}
-```
-
-修改将在重启程序后生效。
-
 ## 常见问题
 
 ### 不用电脑管家，如何限制荣耀 MagicBook 的电池充电？
