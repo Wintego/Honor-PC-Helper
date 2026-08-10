@@ -59,8 +59,6 @@ internal static partial class NativeMethods
     // DEV_BROADCAST_DEVICEINTERFACE_W: dbcc_size(4) + dbcc_devicetype(4) + dbcc_reserved(4) + dbcc_classguid(16).
     internal const int DevBroadcastNameOffset = 28;
 
-    internal enum GetAncestorFlags { GetParent = 1, GetRoot = 2, GetRootOwner = 3 }
-    internal enum ShowWindowCommands { Minimize = 6 }
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct PowerBroadcastSetting
@@ -114,9 +112,6 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool UnregisterPowerSettingNotification(IntPtr handle);
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct Point { internal int X; internal int Y; }
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct ToolInfo
@@ -174,46 +169,12 @@ internal static partial class NativeMethods
         internal ushort NumberFeatureDataIndices;
     }
 
-    [LibraryImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool RegisterHotKey(IntPtr window, int id, uint modifiers, uint virtualKey);
-
-    [LibraryImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool UnregisterHotKey(IntPtr window, int id);
-
-    [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool GetCursorPos(out Point point);
-
-    [LibraryImport("user32.dll")]
-    internal static partial short GetKeyState(int virtualKey);
-
     [LibraryImport("user32.dll")]
     internal static partial int GetSystemMetrics(int index);
 
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool DestroyIcon(IntPtr icon);
-
-    [LibraryImport("user32.dll")]
-    internal static partial IntPtr WindowFromPoint(Point point);
-
-    [LibraryImport("user32.dll")]
-    internal static partial IntPtr GetAncestor(IntPtr window, GetAncestorFlags flags);
-
-    [LibraryImport("user32.dll")]
-    internal static partial IntPtr GetDesktopWindow();
-
-    [LibraryImport("user32.dll")]
-    internal static partial IntPtr GetShellWindow();
-
-    [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool ShowWindow(IntPtr window, ShowWindowCommands command);
-
-    [LibraryImport("user32.dll", EntryPoint = "keybd_event")]
-    internal static partial void KeybdEvent(byte virtualKey, byte scanCode, uint flags, UIntPtr extraInfo);
 
     [LibraryImport("user32.dll")]
     internal static partial IntPtr CreatePopupMenu();

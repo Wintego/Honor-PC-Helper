@@ -1,7 +1,5 @@
 ## What's new
 
-- Left-edge touchpad brightness no longer requires the virtual HID driver: it goes through the native ACPI-WMI path and Windows still shows its usual OSD. The `driver` folder and its installation are gone.
-- The tray menu opens faster: settings are read from an already open registry key instead of reopening it for every value.
-- Fixed granting ACPI brightness access rights: the UAC prompt finished silently and changed nothing.
-- A command rejected by the BIOS is no longer retried.
-- Touchpad error messages are now translated into English and Chinese.
+- Global hotkeys are gone. The `Alt+M`, `Alt+X`, `Alt+C` and `Alt+Z` shortcuts, their tray menu items and the rebinding window have been removed: the combinations clashed with other applications, and media keys are already handled by the keyboard row.
+- The tray menu is shorter by five items, and the app no longer registers system-wide keyboard hooks.
+- The `hotkeysEnabled` option in `config.json` is no longer used and can be deleted.

@@ -6,7 +6,7 @@
 [![下载量](https://img.shields.io/github/downloads/Wintego/Honor-PC-Helper/total)](https://github.com/Wintego/Honor-PC-Helper/releases)
 [![平台](https://img.shields.io/badge/%E5%B9%B3%E5%8F%B0-Windows%2010%20%7C%2011%20x64-blue)](#系统要求)
 
-**Honor PC Helper** 是荣耀电脑管家（HONOR PC Manager）的轻量级开源替代方案：一款 Windows 托盘小工具，用于控制荣耀 MagicBook 笔记本的硬件功能——**电池充电阈值**、**键盘背光**、**性能模式**、**触控板振动与边缘手势**、**全局快捷键**。它直接调用荣耀 BIOS 的 WMI 接口，与电脑管家所用的接口相同，因此无需安装整套厂商软件即可获得这些硬件设置。
+**Honor PC Helper** 是荣耀电脑管家（HONOR PC Manager）的轻量级开源替代方案：一款 Windows 托盘小工具，用于控制荣耀 MagicBook 笔记本的硬件功能——**电池充电阈值**、**键盘背光**、**性能模式**、**触控板振动与边缘手势**。它直接调用荣耀 BIOS 的 WMI 接口，与电脑管家所用的接口相同，因此无需安装整套厂商软件即可获得这些硬件设置。
 
 单个绿色 `.exe` 文件：免安装、无后台服务、无遥测。
 
@@ -19,7 +19,6 @@
 - **性能模式** — 在智能（均衡）模式与高性能模式之间切换，无需打开电脑管家
 - **硬件监控** — 温度、风扇转速、充放电功率（瓦）直接显示在托盘提示中
 - **触控板** — 振动反馈强度、边缘手势（左侧调亮度、右侧调音量）、沿左边缘滑动调节屏幕亮度并显示 Windows 原生 OSD
-- **全局快捷键** — 窗口与多媒体快捷键，可在托盘菜单中重新分配
 - **开机自启动** — 随 Windows 一起启动
 - **界面语言** — 简体中文、英语、俄语，根据 Windows 显示语言自动选择
 
@@ -40,14 +39,6 @@
 
 首次修改硬件设置时，Windows 会请求管理员权限以创建计划任务。之后程序运行不再弹出 UAC 提示。
 
-## 快捷键
-
-默认值：`Alt+M` — 最小化光标所在窗口，`Alt+X` — 播放/暂停，`Alt+C` — 下一曲，`Alt+Z` — 上一曲。
-
-要修改快捷键，请在托盘菜单中点击对应项目并按下新的组合键。至少需要一个修饰键 — Ctrl、Alt 或 Win。`Esc` 取消输入，`Del` 停用该快捷键。修改立即生效并保存到注册表；"恢复默认快捷键"项可还原初始设置。
-
-如果组合键已被其他程序占用，程序会通过气泡提示告知，并将该菜单项标记为"已被占用"。
-
 ## 配置
 
 配置文件是可选的。如需修改默认值，请在 exe 同级目录创建 `config.json`：
@@ -56,8 +47,7 @@
 {
   "brightnessStepPercent": 5,
   "sensorRefreshIntervalMs": 5000,
-  "touchpadBrightnessEnabled": true,
-  "hotkeysEnabled": true
+  "touchpadBrightnessEnabled": true
 }
 ```
 

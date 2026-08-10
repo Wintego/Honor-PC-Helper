@@ -7,8 +7,7 @@ internal sealed class HelperApplicationContext : ApplicationContext
     // реестр и WMI - поэтому обновление ограничено по частоте.
     private const int TooltipMinIntervalMilliseconds = 750;
 
-    private readonly HotkeyWindow _window;
-    private readonly HotkeyManager _hotkeys;
+    private readonly MessageWindow _window;
     private readonly Control _uiDispatcher;
     private readonly NotifyIcon _notifyIcon;
     private readonly System.Windows.Forms.Timer _trayHoverTimer;
@@ -35,7 +34,7 @@ internal sealed class HelperApplicationContext : ApplicationContext
 
     internal HelperApplicationContext()
     {
-        _window = new HotkeyWindow(id => _hotkeys?.Dispatch(id), OnMenuTooltip, OnDisplayResume, OnHidDeviceChange);
+        _window = new MessageWindow(OnMenuTooltip, OnDisplayResume, OnHidDeviceChange);
         _uiDispatcher = new Control();
         _ = _uiDispatcher.Handle;
         _tooltipHandle = NativeMethods.CreateWindowEx(
@@ -69,9 +68,6 @@ internal sealed class HelperApplicationContext : ApplicationContext
         _trayHoverTimer.Tick += OnTrayHoverTimerTick;
         _deviceChangeTimer = new System.Windows.Forms.Timer { Interval = 1_000 };
         _deviceChangeTimer.Tick += OnDeviceChangeTimerTick;
-
-        _hotkeys = new HotkeyManager(_window.Handle, ShowWarningBalloon);
-        _hotkeys.RegisterAll();
 
         if (AppConfig.Current.TouchpadBrightnessEnabled)
         {
@@ -115,7 +111,6 @@ internal sealed class HelperApplicationContext : ApplicationContext
         if (disposing)
         {
             _disposed = true;
-            _hotkeys.Dispose();
             _touchpadService?.Dispose();
             _powerModeEvents?.Dispose();
             _backlightSchedule.Dispose();
@@ -175,8 +170,6 @@ internal sealed class HelperApplicationContext : ApplicationContext
 
         PowerUnlockMenu.Build(menu, UpdateTrayIcon);
 
-        if (_hotkeys.Enabled)
-            BuildHotkeyItems(menu);
         menu.AddSeparator();
         menu.AddItem(
             L.T("Запускать вместе с Windows", "Start with Windows", "开机自启动"),
@@ -185,31 +178,6 @@ internal sealed class HelperApplicationContext : ApplicationContext
         menu.AddItem(L.T("Выход", "Exit", "退出"), ExitThread);
 
         return menu;
-    }
-
-    // Клик по пункту открывает окно захвата нового сочетания.
-    private void BuildHotkeyItems(NativePopupMenu menu)
-    {
-        var tooltip = L.T(
-            "Клик - задать другое сочетание. Esc - отмена, Del - отключить.",
-            "Click to set a different shortcut. Esc - cancel, Del - disable.",
-            "点击可设置其他快捷键。Esc 取消，Del 停用。");
-
-        foreach (var action in HotkeyManager.Actions)
-            menu.AddItem(_hotkeys.MenuText(action), () => _hotkeys.Rebind(action), tooltip: tooltip);
-
-        if (_hotkeys.HasCustomBindings())
-            menu.AddItem(
-                L.T("Сбросить сочетания по умолчанию", "Reset shortcuts to defaults", "恢复默认快捷键"),
-                _hotkeys.ResetToDefaults);
-    }
-
-    private void ShowWarningBalloon(string message)
-    {
-        if (_disposed)
-            return;
-
-        _notifyIcon.ShowBalloonTip(5_000, "Honor PC Helper", message, ToolTipIcon.Warning);
     }
 
     private void ToggleStartup()
@@ -541,19 +509,16 @@ internal sealed class HelperApplicationContext : ApplicationContext
         HandlePowerModeChanged(false);
     }
 
-    private sealed class HotkeyWindow : NativeWindow
+    private sealed class MessageWindow : NativeWindow
     {
-        private const int WmHotkey = 0x0312;
         private const int WmMenuSelect = 0x011F;
-        private readonly Action<int> _onHotkeyPressed;
         private readonly Action<string?> _onTooltip;
         private readonly Action _onDisplayResume;
         private readonly Action<string> _onDeviceChange;
 
-        internal HotkeyWindow(Action<int> onHotkeyPressed, Action<string?> onTooltip,
+        internal MessageWindow(Action<string?> onTooltip,
             Action onDisplayResume, Action<string> onDeviceChange)
         {
-            _onHotkeyPressed = onHotkeyPressed;
             _onTooltip = onTooltip;
             _onDisplayResume = onDisplayResume;
             _onDeviceChange = onDeviceChange;
@@ -562,11 +527,6 @@ internal sealed class HelperApplicationContext : ApplicationContext
 
         protected override void WndProc(ref Message message)
         {
-            if (message.Msg == WmHotkey)
-            {
-                _onHotkeyPressed(message.WParam.ToInt32());
-                return;
-            }
             if (message.Msg == NativeMethods.WmPowerBroadcast
                 && message.WParam.ToInt32() == NativeMethods.PbtPowerSettingChange
                 && message.LParam != IntPtr.Zero)

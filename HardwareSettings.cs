@@ -28,7 +28,6 @@ internal static class HardwareSettings
     private const string TouchpadEdgeGesturePrefix = "TouchpadEdgeGesture.";
     private const string PendingHardwareCommandValue = "PendingHardwareCommand";
     private const string SensorSnapshotValue = "SensorSnapshot";
-    private const string HotkeyValuePrefix = "Hotkey.";
 
     // Обращения идут из UI-потока, фоновых задач и обработчика событий WMI,
     // поэтому доступ к общему ключу сериализуется.
@@ -150,15 +149,6 @@ internal static class HardwareSettings
 
     internal static void SetTouchpadEdgeGesture(TouchpadEdgeGesture gesture, bool? enabled)
         => WriteInt(TouchpadEdgeGesturePrefix + gesture, enabled.HasValue ? enabled.Value ? 1 : 0 : null);
-
-    /// <summary>
-    /// Пользовательское сочетание клавиш для действия. null - значение не задавалось,
-    /// действует умолчание; "None" - пользователь отключил сочетание.
-    /// </summary>
-    internal static string? GetHotkey(string action) => ReadString(HotkeyValuePrefix + action);
-
-    internal static void SetHotkey(string action, string? value)
-        => WriteString(HotkeyValuePrefix + action, value);
 
     private static string? ReadString(string name)
     {

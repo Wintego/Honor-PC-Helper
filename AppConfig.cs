@@ -12,7 +12,6 @@ internal sealed class AppConfig
     public int BrightnessStepPercent { get; set; } = 5;
     public int SensorRefreshIntervalMs { get; set; } = 5_000;
     public bool TouchpadBrightnessEnabled { get; set; } = true;
-    public bool HotkeysEnabled { get; set; } = true;
 
     internal static string FilePath { get; } = Path.Combine(AppContext.BaseDirectory, "config.json");
 

@@ -6,7 +6,7 @@
 [![Downloads](https://img.shields.io/github/downloads/Wintego/Honor-PC-Helper/total)](https://github.com/Wintego/Honor-PC-Helper/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011%20x64-blue)](#requirements)
 
-**Honor PC Helper** is a lightweight open-source **alternative to HONOR PC Manager**: a Windows tray utility that controls HONOR MagicBook hardware — **battery charge limit**, **keyboard backlight**, **performance mode**, **touchpad haptics and edge gestures**, **global hotkeys**. It talks to the HONOR BIOS WMI interface directly, the same interface PC Manager uses, so you get the hardware settings without installing the vendor suite.
+**Honor PC Helper** is a lightweight open-source **alternative to HONOR PC Manager**: a Windows tray utility that controls HONOR MagicBook hardware — **battery charge limit**, **keyboard backlight**, **performance mode**, **touchpad haptics and edge gestures**. It talks to the HONOR BIOS WMI interface directly, the same interface PC Manager uses, so you get the hardware settings without installing the vendor suite.
 
 A single portable `.exe`: no installer, no background services, no telemetry.
 
@@ -19,7 +19,6 @@ A single portable `.exe`: no installer, no background services, no telemetry.
 - **Performance mode** — switch between balanced (smart) and performance mode without opening PC Manager
 - **Hardware monitoring** — temperatures, fan speed and charge/discharge power in watts, right in the tray tooltip
 - **Touchpad** — haptic feedback strength, edge gestures (brightness on the left edge, volume on the right), screen brightness by swiping the left edge with the native Windows OSD
-- **Global hotkeys** — window and media shortcuts, reassignable from the tray menu
 - **Autostart** — launches with Windows
 - **Interface languages** — English, Russian and Simplified Chinese, selected automatically from the Windows display language
 
@@ -40,14 +39,6 @@ Feature availability depends on the model and BIOS version: touchpad haptics onl
 
 The first time you change a hardware setting, Windows asks for administrator privileges to create a scheduled task. After that the app runs without elevation prompts.
 
-## Hotkeys
-
-Defaults: `Alt+M` — minimize the window under the cursor, `Alt+X` — play/pause, `Alt+C` — next track, `Alt+Z` — previous track.
-
-To change a shortcut, click the matching item in the tray menu and press the new combination. At least one modifier is required — Ctrl, Alt or Win. `Esc` cancels, `Del` disables the shortcut. Changes apply immediately and are stored in the registry; the "Reset shortcuts to defaults" item restores the original values.
-
-If a combination is already taken by another application, a balloon tip reports it and the menu item is marked as "in use".
-
 ## Configuration
 
 The settings file is optional. To override the defaults, create a `config.json` next to the exe:
@@ -56,8 +47,7 @@ The settings file is optional. To override the defaults, create a `config.json` 
 {
   "brightnessStepPercent": 5,
   "sensorRefreshIntervalMs": 5000,
-  "touchpadBrightnessEnabled": true,
-  "hotkeysEnabled": true
+  "touchpadBrightnessEnabled": true
 }
 ```
 
