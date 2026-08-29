@@ -31,6 +31,7 @@ internal sealed class HelperApplicationContext : ApplicationContext
     private long _lastTooltipUpdate;
     private const int ResumeSettleMilliseconds = 8000;
     private const int ResumeDebounceMilliseconds = 10000;
+    private readonly Task<IReadOnlyList<DriverComponent>> _driverComponentsTask;
 
     internal HelperApplicationContext()
     {
@@ -100,6 +101,12 @@ internal sealed class HelperApplicationContext : ApplicationContext
         }
 
         _backlightSchedule.Start();
+        _driverComponentsTask = new DriverUpdateService().BuildDeviceListAsync();
+        _ = _driverComponentsTask.ContinueWith(
+            task => AppLog.Error("Background driver device inventory failed", task.Exception!),
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
         _ = RefreshSensorsAsync();
     }
 
@@ -167,6 +174,13 @@ internal sealed class HelperApplicationContext : ApplicationContext
 
         PowerUnlockMenu.Build(menu, UpdateTrayIcon);
 
+        menu.AddItem(
+            L.T("Драйвера", "Drivers", "驱动程序"),
+            ShowDriverManager,
+            tooltip: L.T(
+                "Проверка и установка драйверов и прошивок с сервера HONOR.",
+                "Check and install drivers and firmware from HONOR.",
+                "从 HONOR 检查并安装驱动程序和固件。"));
         menu.AddSeparator();
         menu.AddItem(
             L.T("Запускать вместе с Windows", "Start with Windows", "开机自启动"),
@@ -175,6 +189,24 @@ internal sealed class HelperApplicationContext : ApplicationContext
         menu.AddItem(L.T("Выход", "Exit", "退出"), ExitThread);
 
         return menu;
+    }
+
+    private void ShowDriverManager()
+    {
+        var form = Application.OpenForms.OfType<DriverManagerForm>().FirstOrDefault();
+        if (form is null || form.IsDisposed)
+        {
+            form = new DriverManagerForm(_driverComponentsTask);
+            form.Show();
+            form.Activate();
+            form.BringToFront();
+        }
+        else
+        {
+            form.WindowState = FormWindowState.Normal;
+            form.Activate();
+            form.BringToFront();
+        }
     }
 
     private void ToggleStartup()
@@ -377,10 +409,13 @@ internal sealed class HelperApplicationContext : ApplicationContext
 
         if (eventArgs.Button == MouseButtons.Right)
         {
+            Action? action;
             using var menu = CreateMenu();
             var commandId = menu.Show(_window.Handle);
             HideNativeTooltip();
-            menu.TryInvoke(commandId);
+            action = menu.GetCallback(commandId);
+            if (action is not null)
+                _uiDispatcher.BeginInvoke(action);
         }
     }
 

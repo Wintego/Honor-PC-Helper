@@ -1,4 +1,9 @@
-## What's new
+## Honor PC Helper 1.8.0
 
-- The `config.json` settings file is no longer read. Its three options had sensible values already, and the file was one more thing to keep next to the exe: the sensor refresh interval and the touchpad brightness gesture are now built in, and a leftover `config.json` is simply ignored.
-- The brightness step of the left-edge touchpad gesture went from 5% to 3%, so a swipe adjusts the backlight more gently. This applies to the fallback path only - on machines where the HONOR firmware handles the step it stays at the firmware's 10%.
+- Driver and application update checks now bypass stale localhost system proxies left behind by stopped VPN/proxy clients.
+- Fixed slow and unreliable driver checks on HONOR ZQC-P/C233: the app now opens the model's official support catalog directly instead of timing out while scanning the full product tree.
+- Added **Driver management**: Honor PC Helper identifies installed HONOR/OEM drivers and downloads verified packages from HONOR's official services.
+- Laptop models are matched dynamically by hardware identifiers, processor and memory against HONOR's regional support catalogs; there is no hard-coded model list.
+- Update-platform and support-catalog checks are independent, so one unavailable HONOR service no longer blocks the other.
+- Honor PC Helper now checks its own GitHub Releases page and can replace and restart the portable exe when a newer release is available.
+- Driver packages are downloaded over HTTPS. Checksums are verified when HONOR provides them, and extracted installers must have a valid Authenticode signature before they can be saved.

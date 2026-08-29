@@ -92,15 +92,8 @@ internal sealed class NativePopupMenu : IDisposable
         }
     }
 
-    internal bool TryInvoke(int commandId)
-    {
-        if (_state.Callbacks.TryGetValue(commandId, out var action))
-        {
-            action();
-            return true;
-        }
-        return false;
-    }
+    internal Action? GetCallback(int commandId)
+        => _state.Callbacks.GetValueOrDefault(commandId);
 
     internal static string? GetTooltip(int commandId)
         => _activeMenu is { } menu && menu._state.Tooltips.TryGetValue(commandId, out var text) ? text : null;

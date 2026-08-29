@@ -17,6 +17,8 @@ A single portable `.exe`: no installer, no background services, no telemetry.
 - **Battery charge limit** — cap charging (for example at 70-80%) to extend battery lifespan on a laptop that stays plugged in
 - **Keyboard backlight** — turn it on or off, set the idle timeout, schedule automatic evening switch-on; the level is restored after sleep and modern standby
 - **Performance mode** — switch between balanced (smart) and performance mode without opening PC Manager
+- **Driver management** — automatically match any supported HONOR laptop model and safely download newer or missing drivers from HONOR's official services
+- **Application updates** — check GitHub Releases and automatically replace the portable Honor PC Helper executable
 - **Hardware monitoring** — temperatures, fan speed and charge/discharge power in watts, right in the tray tooltip
 - **Touchpad** — haptic feedback strength, edge gestures (brightness on the left edge, volume on the right), screen brightness by swiping the left edge with the native Windows OSD
 - **Autostart** — launches with Windows
@@ -39,6 +41,8 @@ Feature availability depends on the model and BIOS version: touchpad haptics onl
 
 The first time you change a hardware setting, Windows asks for administrator privileges to create a scheduled task. After that the app runs without elevation prompts.
 
+To check drivers, open **Drivers** in the tray menu. The app matches the laptop against HONOR's official catalogs and highlights newer or missing packages. Click a highlighted version to verify and download the installer; installation remains under your control.
+
 ## FAQ
 
 ### How do I limit battery charging on a HONOR MagicBook without PC Manager?
@@ -51,11 +55,11 @@ Use the **Keyboard backlight** submenu: turn it on or off and set the idle timeo
 
 ### Is there a lightweight alternative to HONOR PC Manager?
 
-That is what this project is. Honor PC Helper covers the hardware settings — charge limit, backlight, performance mode, touchpad behaviour — from a single portable exe, with no installer and no background services. It does not update drivers and it does not do phone-to-PC multi-screen collaboration.
+That is what this project is. Honor PC Helper covers hardware settings and driver updates from a single portable exe, with no installer of its own and no background services. It does not provide phone-to-PC multi-screen collaboration.
 
 ### Can I uninstall HONOR PC Manager and use this instead?
 
-Yes, if you only used PC Manager for hardware settings. The values it wrote (charge thresholds, backlight timeout) live in the BIOS and stay in effect; Honor PC Helper reads and rewrites them through the same WMI interface. Reinstall PC Manager whenever you need driver updates or MagicRing.
+Yes, unless you need MagicRing. Values written by PC Manager (charge thresholds and backlight timeout) live in the BIOS and remain in effect; Honor PC Helper reads them through the same WMI interface and gets current drivers from HONOR's official update service.
 
 ### Does it need administrator rights?
 
