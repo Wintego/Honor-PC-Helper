@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Globalization;
 using System.Management;
+using System.Net;
 using System.Net.Http.Json;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -107,11 +108,15 @@ internal sealed class DriverUpdateService
 
         var (apiUpdates, apiVersions) = await CheckPlatformAsync(
             request, serverRequestComponents, cancellationToken);
-        var (siteComponents, siteUpdates, siteVersions, siteCheckComplete) = apiUpdates.Count > 0 || apiVersions.Count > 0
+        var availableApiUpdates = await FilterAvailableDownloadsAsync(apiUpdates, cancellationToken);
+        var platformHasMissingDownloads = availableApiUpdates.Count < apiUpdates.Count;
+        var (siteComponents, siteUpdates, siteVersions, siteCheckComplete) = !platformHasMissingDownloads
+            && (availableApiUpdates.Count > 0 || apiVersions.Count > 0)
             ? (Array.Empty<DriverComponent>(), Array.Empty<DriverUpdate>(),
                 (IReadOnlyDictionary<int, string>)new Dictionary<int, string>(), true)
             : await CheckSupportSiteAsync(machine, serverRequestComponents, cancellationToken);
-        var updates = apiUpdates.Concat(siteUpdates)
+        var availableSiteUpdates = await FilterAvailableDownloadsAsync(siteUpdates, cancellationToken);
+        var updates = availableApiUpdates.Concat(availableSiteUpdates)
             .GroupBy(update => update.Component.Id)
             .Select(group => group.OrderByDescending(update => VersionParts(update.Version),
                 VersionPartComparer.Instance).First())
@@ -133,6 +138,47 @@ internal sealed class DriverUpdateService
             .ToList();
         AppLog.Info($"HONOR driver update check completed; {updates.Count} update(s)");
         return new DriverCheckResult(components, updates, availableVersions, siteCheckComplete);
+    }
+
+    private static async Task<IReadOnlyList<DriverUpdate>> FilterAvailableDownloadsAsync(
+        IEnumerable<DriverUpdate> updates,
+        CancellationToken cancellationToken)
+    {
+        var groups = updates.GroupBy(update => GetDownloadUrl(update.DownloadBaseUrl))
+            .Select(group => (Url: group.Key, Updates: group.ToArray()))
+            .ToArray();
+        using var requestSlots = new SemaphoreSlim(SupportRequestConcurrency);
+        var checks = groups.Select(async group =>
+        {
+            await requestSlots.WaitAsync(cancellationToken);
+            try
+            {
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeout.CancelAfter(TimeSpan.FromSeconds(10));
+                using var request = new HttpRequestMessage(HttpMethod.Head, group.Url);
+                using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+                if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Gone)
+                {
+                    AppLog.Info($"Ignoring missing driver package: {group.Updates[0].Component.Name} "
+                        + $"{group.Updates[0].Version} returned {(int)response.StatusCode}");
+                    return Array.Empty<DriverUpdate>();
+                }
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                AppLog.Info($"Driver package availability check timed out for {group.Url.Host}");
+            }
+            catch (Exception exception)
+            {
+                AppLog.Error($"Driver package availability check failed for {group.Url.Host}", exception);
+            }
+            finally
+            {
+                requestSlots.Release();
+            }
+            return group.Updates;
+        });
+        return (await Task.WhenAll(checks)).SelectMany(group => group).ToArray();
     }
 
     private static async Task<(
@@ -207,8 +253,15 @@ internal sealed class DriverUpdateService
             Directory.Delete(extractDirectory, recursive: true);
 
         AppLog.Info($"Downloading driver {update.Component.Name} {update.Version} from {downloadUrl.Host}");
-        using (var response = await Http.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken))
+        using (var response = await Http.GetAsync(
+                   downloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken))
         {
+            if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Gone)
+                throw new HttpRequestException(L.T(
+                    "Файл драйвера больше недоступен на сервере HONOR. Обновите список драйверов.",
+                    "The driver file is no longer available on the HONOR server. Refresh the driver list.",
+                    "该驱动程序文件已无法从 HONOR 服务器获取。请刷新驱动程序列表。"),
+                    null, response.StatusCode);
             response.EnsureSuccessStatusCode();
             var total = response.Content.Headers.ContentLength;
             await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
