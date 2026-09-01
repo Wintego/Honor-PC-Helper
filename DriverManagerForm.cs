@@ -357,10 +357,12 @@ internal sealed class DriverManagerForm : Form
             TextAlign = ContentAlignment.MiddleLeft,
             Padding = new Padding(2, 3, 3, 2),
             Font = _linkFont,
-            LinkColor = update is null
-                ? component.CurrentVersion == "0" ? _muted : _eco
-                : update.IsUpdate ? _turbo : _eco,
-            ActiveLinkColor = update?.IsUpdate == true ? _turbo : _eco,
+            LinkColor = component.CurrentVersion == "0"
+                ? _muted
+                : update?.IsUpdate == true ? _turbo : _eco,
+            ActiveLinkColor = component.CurrentVersion == "0"
+                ? _muted
+                : update?.IsUpdate == true ? _turbo : _eco,
             Cursor = update is null ? Cursors.Default : Cursors.Hand,
             LinkBehavior = update is null ? LinkBehavior.NeverUnderline : LinkBehavior.AlwaysUnderline
         };
@@ -426,7 +428,9 @@ internal sealed class DriverManagerForm : Form
                 row.Title.Text = update.PackageTitle ?? row.Component.DeviceName ?? ComponentTitle(row.Component);
                 row.Date.Text = FormatDate(update.ReleaseDate);
                 row.Version.Text = DisplayVersion(update, row.Component);
-                row.Version.LinkColor = update.IsUpdate ? _turbo : _eco;
+                row.Version.LinkColor = row.Component.CurrentVersion == "0"
+                    ? _muted
+                    : update.IsUpdate ? _turbo : _eco;
                 row.Version.ActiveLinkColor = row.Version.LinkColor;
                 row.Version.Cursor = Cursors.Hand;
                 row.Version.LinkBehavior = LinkBehavior.AlwaysUnderline;

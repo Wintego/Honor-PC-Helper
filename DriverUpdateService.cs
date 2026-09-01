@@ -105,6 +105,7 @@ internal sealed class DriverUpdateService
 
         AppLog.Info($"Checking HONOR driver updates for {machine.DeviceName}/{machine.CVersion}; "
             + $"{installedComponents.Count} detected, {serverRequestComponents.Count} requested");
+        AppLog.Info($"Installed component versions: {dashboard}");
 
         var (apiUpdates, apiVersions) = await CheckPlatformAsync(
             request, serverRequestComponents, cancellationToken);
@@ -116,10 +117,16 @@ internal sealed class DriverUpdateService
                 (IReadOnlyDictionary<int, string>)new Dictionary<int, string>(), true)
             : await CheckSupportSiteAsync(machine, serverRequestComponents, cancellationToken);
         var availableSiteUpdates = await FilterAvailableDownloadsAsync(siteUpdates, cancellationToken);
+        // When several packages map to the same component, prefer one whose version
+        // can be compared with the installed driver at all: a build-date package
+        // sorts above the real driver version but says nothing about it.
         var updates = availableApiUpdates.Concat(availableSiteUpdates)
             .GroupBy(update => update.Component.Id)
-            .Select(group => group.OrderByDescending(update => VersionParts(update.Version),
-                VersionPartComparer.Instance).First())
+            .Select(group => group
+                .OrderByDescending(update =>
+                    IsComparableVersion(update.Version, update.Component.CurrentVersion))
+                .ThenByDescending(update => VersionParts(update.Version), VersionPartComparer.Instance)
+                .First())
             .ToList();
         var availableVersions = apiVersions.ToDictionary(item => item.Key, item => item.Value);
         foreach (var item in siteVersions)
@@ -136,7 +143,14 @@ internal sealed class DriverUpdateService
             .GroupBy(component => component.Id)
             .Select(group => group.First())
             .ToList();
-        AppLog.Info($"HONOR driver update check completed; {updates.Count} update(s)");
+        foreach (var update in updates.Where(update => update.IsUpdate))
+        {
+            AppLog.Info($"Update available for {update.Component.Name}: "
+                + $"{update.Component.CurrentVersion} -> {update.Version}");
+        }
+        AppLog.Info($"HONOR driver update check completed; "
+            + $"{updates.Count(update => update.IsUpdate)} update(s), "
+            + $"{updates.Count} package(s)");
         return new DriverCheckResult(components, updates, availableVersions, siteCheckComplete);
     }
 
@@ -370,26 +384,42 @@ internal sealed class DriverUpdateService
     private static List<DriverComponent> ReadInstalledComponents()
     {
         using var searcher = new ManagementObjectSearcher(
-            "SELECT DeviceName, DeviceID, DriverVersion, DriverProviderName FROM Win32_PnPSignedDriver");
+            "SELECT DeviceName, DeviceID, DeviceClass, DriverVersion, DriverProviderName "
+            + "FROM Win32_PnPSignedDriver");
         using var results = searcher.Get();
-        var drivers = results.Cast<ManagementObject>()
-            .Select(item => new PnpDriver(
-                Convert.ToString(item["DeviceName"]) ?? string.Empty,
-                Convert.ToString(item["DeviceID"]) ?? string.Empty,
-                Convert.ToString(item["DriverVersion"]) ?? string.Empty,
-                Convert.ToString(item["DriverProviderName"]) ?? string.Empty))
-            .Where(driver => !string.IsNullOrWhiteSpace(driver.Version))
-            .ToArray();
+        var driverList = new List<PnpDriver>();
+        foreach (var item in results)
+        {
+            using var driver = item;
+            var version = Convert.ToString(driver["DriverVersion"]) ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(version))
+                continue;
+            driverList.Add(new PnpDriver(
+                Convert.ToString(driver["DeviceName"]) ?? string.Empty,
+                Convert.ToString(driver["DeviceID"]) ?? string.Empty,
+                version,
+                Convert.ToString(driver["DriverProviderName"]) ?? string.Empty,
+                Convert.ToString(driver["DeviceClass"]) ?? string.Empty));
+        }
+        var drivers = driverList.ToArray();
 
         var components = new List<DriverComponent>();
         Add(components, drivers, 87, "VDisplay", "Virtual Display", d => Has(d, "virtual display"));
         Add(components, drivers, 88, "VHID", "Virtual HID", d => Has(d, "virtual hid"));
         Add(components, drivers, 12, "WDT", "Watchdog", d => Has(d, "wdtdevice") || IdHas(d, "WDT0001"));
-        Add(components, drivers, 1, "Chipset", "Chipset", d => Has(d, "lpc/espi") || Has(d, "chipset"));
+        Add(components, drivers, 1, "Chipset", "Chipset", d =>
+            Has(d, "lpc") || Has(d, "espi") || Has(d, "smbus") || Has(d, "chipset"));
         Add(components, drivers, 2, "ME", "Intel Management Engine", d => Has(d, "management engine interface"));
-        Add(components, drivers, 3, "Graphics", "Graphics", d =>
-            IdHas(d, "VEN_8086") && (Has(d, "arc(tm)") || Has(d, "graphics"))
-            || IdHas(d, "VEN_1002") && Has(d, "graphics"));
+        // Display adapters are matched by hardware vendor and device class instead
+        // of by name: Windows localises adapter names and they differ between Arc,
+        // Iris, UHD and Radeon parts.  The integrated GPU is preferred because that
+        // is the one HONOR ships a package for.
+        Add(components, drivers, 3, "Graphics", "Graphics",
+        [
+            d => IsDisplayAdapter(d, "VEN_8086"),
+            d => IsDisplayAdapter(d, "VEN_1002"),
+            d => IsDisplayAdapter(d, "VEN_10DE")
+        ]);
         Add(components, drivers, 4, "SerialIO", "Serial IO", d => Has(d, "serial io"));
         Add(components, drivers, 6, "DPTF", "Platform framework", d =>
             Has(d, "innovation platform framework manager")
@@ -397,27 +427,38 @@ internal sealed class DriverUpdateService
         Add(components, drivers, 14, "Audio", "Audio", d =>
             IdHas(d, "FUNC_01") && Has(d, "audio"));
         Add(components, drivers, 15, "WiFi", "Wi-Fi", d =>
-            (d.DeviceId.StartsWith("PCI\\", StringComparison.OrdinalIgnoreCase)
+            ClassIs(d, "NET")
+            && (d.DeviceId.StartsWith("PCI\\", StringComparison.OrdinalIgnoreCase)
                 || d.DeviceId.StartsWith("USB\\", StringComparison.OrdinalIgnoreCase))
-            && (Has(d, "wi-fi") || Has(d, "wireless"))
+            && (Has(d, "wi-fi") || Has(d, "wifi") || Has(d, "wireless") || Has(d, "wlan"))
             && !Has(d, "virtual")
-            && !Has(d, "software extension")
-            && !d.Provider.Contains("Microsoft", StringComparison.OrdinalIgnoreCase));
+            && !IsGenericProvider(d));
         Add(components, drivers, 16, "BT", "Bluetooth", d =>
-            Has(d, "bluetooth") && !d.Provider.Contains("Microsoft", StringComparison.OrdinalIgnoreCase));
-        Add(components, drivers, 18, "EgisFingerPrint", "Fingerprint", d => Has(d, "fingerprint"), FingerprintPackageType);
+            (ClassIs(d, "BLUETOOTH") || Has(d, "bluetooth")) && !IsGenericProvider(d));
+        Add(components, drivers, 18, "EgisFingerPrint", "Fingerprint", d =>
+            ClassIs(d, "BIOMETRIC") || Has(d, "fingerprint"), FingerprintPackageType);
         Add(components, drivers, 41, "Monitor", "Monitor", d =>
-            (d.DeviceId.StartsWith("DISPLAY\\", StringComparison.OrdinalIgnoreCase)
+            (ClassIs(d, "MONITOR")
+                || d.DeviceId.StartsWith("DISPLAY\\", StringComparison.OrdinalIgnoreCase)
                 || d.DeviceId.StartsWith("MONITOR\\", StringComparison.OrdinalIgnoreCase))
-            && !d.Provider.Contains("Microsoft", StringComparison.OrdinalIgnoreCase));
+            && !IsGenericProvider(d));
         Add(components, drivers, 52, "NFC", "NFC", d => Has(d, "nfc") || IdHas(d, "NTAG"));
         Add(components, drivers, 55, "PPM", "Intel PPM", d => Has(d, "ppm provisioning"));
         Add(components, drivers, 56, "TXT", "Intel TXT", d => Has(d, "txt authenticated"));
-        Add(components, drivers, 65, "ISST", "Intel Smart Sound", d => Has(d, "smart sound technology bus"));
+        // Windows localises most Smart Sound endpoint names, so match the part of
+        // the product name that stays in English and let the shared package version
+        // of the matched devices win.
+        Add(components, drivers, 65, "ISST", "Intel Smart Sound", d => Has(d, "smart sound"));
         Add(components, drivers, 73, "iPMT", "Intel PMT", d => Has(d, "platform monitoring technology"));
-        Add(components, drivers, 74, "NPU", "Intel NPU", d => Has(d, "intel(r) npu") || Has(d, "intel npu"));
+        // The Gaussian & Neural Accelerator of pre-Meteor Lake platforms shares the
+        // ComputeAccelerator class with the NPU but is versioned separately, so
+        // reporting it as the NPU would invent an update on every such machine.
+        Add(components, drivers, 74, "NPU", "Intel NPU", d =>
+            !Has(d, "gaussian") && !Has(d, "gna")
+            && (ClassIs(d, "COMPUTEACCELERATOR") || ClassIs(d, "NEURALPROCESSOR")
+                || Has(d, "npu") || Has(d, "neural processor") || Has(d, "ai boost")));
         Add(components, drivers, 76, "LuxvisionsCameraDrv", "Camera", d =>
-            Has(d, "camera") && !d.Provider.Contains("Microsoft", StringComparison.OrdinalIgnoreCase),
+            (ClassIs(d, "CAMERA") || ClassIs(d, "IMAGE") || Has(d, "camera")) && !IsGenericProvider(d),
             appName: "HonorCamera");
         Add(components, drivers, 78, "MEP", "Windows Studio Effects", d =>
             IdHas(d, "MEP_") && (Has(d, "windows camera effects") || Has(d, "windows studio effects")));
@@ -478,13 +519,50 @@ internal sealed class DriverUpdateService
         Func<PnpDriver, bool> predicate,
         Func<PnpDriver, string>? packageType = null,
         string? appName = null)
+        => Add(components, drivers, id, name, displayName, [predicate], packageType, appName);
+
+    // Records the installed version of one HONOR component.  The predicates are
+    // tried in order and the first one matching any device wins, so a precise rule
+    // can be stated ahead of a broader fallback.
+    private static void Add(
+        ICollection<DriverComponent> components,
+        IEnumerable<PnpDriver> drivers,
+        int id,
+        string name,
+        string displayName,
+        Func<PnpDriver, bool>[] predicates,
+        Func<PnpDriver, string>? packageType = null,
+        string? appName = null)
     {
-        var match = drivers.Where(predicate)
-            .OrderByDescending(driver => VersionParts(driver.Version), VersionPartComparer.Instance)
-            .FirstOrDefault();
-        if (match is not null)
+        foreach (var predicate in predicates)
+        {
+            var match = SelectRepresentative(drivers.Where(predicate).ToArray());
+            if (match is null)
+                continue;
             components.Add(new DriverComponent(id, name, displayName, match.Version,
                 packageType?.Invoke(match) ?? string.Empty, match.DeviceName, appName));
+            return;
+        }
+    }
+
+    // Picks the device whose driver version stands for the installed package.  A
+    // HONOR package installs the same version on every device it covers, so the
+    // version shared by most of the matched devices is the reliable answer; taking
+    // the highest one instead used to pick an unrelated device that merely shared a
+    // keyword, which made the component look out of date.
+    private static PnpDriver? SelectRepresentative(IReadOnlyCollection<PnpDriver> matches)
+    {
+        if (matches.Count == 0)
+            return null;
+        var vendorMatches = matches.Where(driver => !IsGenericProvider(driver)).ToArray();
+        var candidates = vendorMatches.Length > 0 ? vendorMatches : matches;
+        return candidates
+            .GroupBy(driver => driver.Version, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(group => group.Count())
+            .ThenByDescending(group => VersionParts(group.Key), VersionPartComparer.Instance)
+            .First()
+            .OrderBy(driver => driver.DeviceName, StringComparer.OrdinalIgnoreCase)
+            .First();
     }
 
     private static (
@@ -510,13 +588,13 @@ internal sealed class DriverUpdateService
                     || CompareVersions(version, availableVersion) > 0))
                 availableVersions[id] = version;
             var url = Text(item, "url") ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(version) || string.IsNullOrWhiteSpace(url)
-                || CompareVersions(version, component.CurrentVersion) <= 0)
+            if (string.IsNullOrWhiteSpace(version) || string.IsNullOrWhiteSpace(url))
                 continue;
             _ = long.TryParse(Text(item, "size"), out var size);
             result.Add(new DriverUpdate(component, version, Text(item, "versionID") ?? string.Empty,
                 url, size, Text(item, "sha256") ?? Text(item, "hash"),
-                NormalizeReleaseDate(Text(item, "releaseDate") ?? Text(item, "updateTime") ?? Text(item, "date"))));
+                NormalizeReleaseDate(Text(item, "releaseDate") ?? Text(item, "updateTime") ?? Text(item, "date")),
+                IsNewerVersion(version, component.CurrentVersion)));
         }
         return (result, availableVersions);
     }
@@ -875,9 +953,13 @@ internal sealed class DriverUpdateService
 
     private static string NormalizeSupportVersion(string value)
     {
+        // A title can carry more than one dotted number ("Chipset 10.1.56.27 for
+        // Win11 23.2"), so take the most detailed one instead of the last one, which
+        // is usually an operating system or revision suffix.
         var dotted = System.Text.RegularExpressions.Regex.Matches(value, @"\d+(?:\.\d+)+")
             .Select(match => match.Value)
-            .LastOrDefault();
+            .OrderByDescending(match => match.Count(character => character == '.'))
+            .FirstOrDefault();
         if (!string.IsNullOrWhiteSpace(dotted))
             return dotted;
         var numeric = System.Text.RegularExpressions.Regex.Matches(value, @"\d{6,}")
@@ -1037,11 +1119,44 @@ internal sealed class DriverUpdateService
                 "安装程序由未知发布者签名。"));
     }
 
+    // Matches a device name.  Short keywords are matched as whole words, because as
+    // a plain substring they hit unrelated devices: "npu" occurs inside "Microsoft
+    // Input Configuration Device", which used to be reported as the installed
+    // neural processor and made every NPU package look like an update.
     private static bool Has(PnpDriver driver, string value)
-        => driver.DeviceName.Contains(value, StringComparison.OrdinalIgnoreCase);
+        => value.Length <= 4 && value.All(char.IsLetterOrDigit)
+            ? HasWord(driver.DeviceName, value)
+            : driver.DeviceName.Contains(value, StringComparison.OrdinalIgnoreCase);
+
+    private static bool HasWord(string text, string value)
+    {
+        for (var index = text.IndexOf(value, StringComparison.OrdinalIgnoreCase);
+             index >= 0;
+             index = text.IndexOf(value, index + 1, StringComparison.OrdinalIgnoreCase))
+        {
+            var end = index + value.Length;
+            if ((index == 0 || !char.IsLetterOrDigit(text[index - 1]))
+                && (end == text.Length || !char.IsLetterOrDigit(text[end])))
+                return true;
+        }
+        return false;
+    }
 
     private static bool IdHas(PnpDriver driver, string value)
         => driver.DeviceId.Contains(value, StringComparison.OrdinalIgnoreCase);
+
+    private static bool ClassIs(PnpDriver driver, string value)
+        => driver.DeviceClass.Equals(value, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsGenericProvider(PnpDriver driver)
+        => string.IsNullOrWhiteSpace(driver.Provider)
+        || driver.Provider.Contains("Microsoft", StringComparison.OrdinalIgnoreCase)
+        || driver.Provider.Contains("Standard", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsDisplayAdapter(PnpDriver driver, string vendorId)
+        => (ClassIs(driver, "DISPLAY") || Has(driver, "graphics") || Has(driver, "arc(tm)"))
+        && IdHas(driver, vendorId)
+        && !IsGenericProvider(driver);
 
     private static string FingerprintPackageType(PnpDriver driver)
     {
@@ -1062,22 +1177,42 @@ internal sealed class DriverUpdateService
             if (av != bv)
                 return av.CompareTo(bv);
         }
-        return string.Compare(left, right, StringComparison.OrdinalIgnoreCase);
+        return a.Length > 0 && b.Length > 0
+            ? 0
+            : string.Compare(left, right, StringComparison.OrdinalIgnoreCase);
     }
 
+    // Reports an update only when the offered version can honestly be compared with
+    // what Windows reports for the installed driver.  Anything else - an undetected
+    // component, a build date against a driver version, two unrelated numbering
+    // schemes - is left alone rather than announced as an update that then refuses
+    // to install.
     private static bool IsNewerVersion(string available, string installed)
+        => IsComparableVersion(available, installed) && CompareVersions(available, installed) > 0;
+
+    private static bool IsComparableVersion(string available, string installed)
     {
-        if (installed == "0")
-            return true;
+        if (string.IsNullOrWhiteSpace(available) || string.IsNullOrWhiteSpace(installed)
+            || installed == "0")
+            return false;
 
         // The support site often exposes a package build date (for example
         // 20260619), while Windows reports the actual driver version
         // (for example 10.18.26100.3). These values are not comparable.
-        var availableIsDateCode = Regex.IsMatch(available, @"^20\d{6}$");
-        var installedIsDateCode = Regex.IsMatch(installed, @"^20\d{6}$");
-        return availableIsDateCode == installedIsDateCode
-            && CompareVersions(available, installed) > 0;
+        if (IsDateCode(available) != IsDateCode(installed))
+            return false;
+
+        var availableParts = VersionParts(available);
+        var installedParts = VersionParts(installed);
+        if (availableParts.Length == 0 || installedParts.Length == 0)
+            return false;
+
+        // A package numbered "2.5" says nothing about a driver numbered
+        // "10.1.19627.8492"; comparing those digit by digit only invents updates.
+        return Math.Abs(availableParts.Length - installedParts.Length) <= 1;
     }
+
+    private static bool IsDateCode(string value) => Regex.IsMatch(value, @"^20\d{6}$");
 
     private static int[] VersionParts(string value)
         => System.Text.RegularExpressions.Regex.Matches(value, @"\d+")
@@ -1090,7 +1225,12 @@ internal sealed class DriverUpdateService
     private static bool TryInt(JsonElement element, string name, out int value)
         => int.TryParse(Text(element, name), out value);
 
-    private sealed record PnpDriver(string DeviceName, string DeviceId, string Version, string Provider);
+    private sealed record PnpDriver(
+        string DeviceName,
+        string DeviceId,
+        string Version,
+        string Provider,
+        string DeviceClass);
     private sealed record MachineIdentity(
         string DeviceName,
         string CVersion,
