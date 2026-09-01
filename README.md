@@ -18,7 +18,7 @@ A single portable `.exe`: no installer, no background services, no telemetry.
 - **Keyboard backlight** — turn it on or off, set the idle timeout, schedule automatic evening switch-on; the level is restored after sleep and modern standby
 - **Performance mode** — switch between balanced (smart) and performance mode without opening PC Manager
 - **Driver management** — automatically match any supported HONOR laptop model and safely download newer or missing drivers from HONOR's official services
-- **Application updates** — check GitHub Releases and automatically replace the portable Honor PC Helper executable
+- **Application updates** — check GitHub Releases and automatically replace the portable Honor PC Helper executable without an administrator prompt
 - **Hardware monitoring** — temperatures, fan speed and charge/discharge power in watts, right in the tray tooltip
 - **Touchpad** — haptic feedback strength, edge gestures (brightness on the left edge, volume on the right), screen brightness by swiping the left edge with the native Windows OSD
 - **Autostart** — launches with Windows

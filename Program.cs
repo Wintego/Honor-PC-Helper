@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace HonorPCHelper;
 
 internal static class Program
@@ -15,7 +17,8 @@ internal static class Program
     /// - --set-*   запуск с повышением прав через UAC: применяет настройку,
     ///             регистрирует фоновую задачу и показывает ошибку пользователю;
     /// - --apply-* тот же набор настроек из фоновой задачи, молча;
-    /// - --run-pending-hardware-command  точка входа самой фоновой задачи.
+    /// - --run-pending-hardware-command  точка входа самой фоновой задачи;
+    /// - --restart-after &lt;pid&gt;  запуск после самообновления: ждём выхода прежней сборки.
     /// </summary>
     [STAThread]
     private static int Main(string[] args)
@@ -46,9 +49,32 @@ internal static class Program
             "--install-privileged-tasks" => Interactive(InstallPrivilegedTasks, value),
             "--uninstall-privileged-tasks" => Interactive(UninstallPrivilegedTasks, value),
             "--run-pending-hardware-command" => PrivilegedHardware.RunPendingCommand(),
+            "--restart-after" => RunTrayAfter(value),
 
             _ => RunTray()
         };
+    }
+
+    /// <summary>
+    /// Запуск обновлённой сборки: прежний процесс ещё держит mutex
+    /// единственного экземпляра, поэтому сначала дожидаемся его выхода.
+    /// </summary>
+    private static int RunTrayAfter(string? processIdText)
+    {
+        if (int.TryParse(processIdText, out var processId))
+        {
+            try
+            {
+                using var previous = Process.GetProcessById(processId);
+                previous.WaitForExit(TimeSpan.FromSeconds(30));
+            }
+            catch (ArgumentException)
+            {
+                // Прежний процесс уже завершился.
+            }
+        }
+
+        return RunTray();
     }
 
     private static int RunTray()
@@ -57,6 +83,7 @@ internal static class Program
         if (!createdNew)
             return 0;
 
+        Task.Run(ApplicationUpdateService.RemoveUpdateLeftovers);
         ApplicationConfiguration.Initialize();
         Application.Run(new HelperApplicationContext());
         return 0;

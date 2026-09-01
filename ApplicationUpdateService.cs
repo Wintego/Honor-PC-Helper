@@ -1,4 +1,6 @@
+using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
@@ -19,10 +21,19 @@ internal sealed record ApplicationUpdateCheck(
 
 internal sealed class ApplicationUpdateService
 {
+    /// <summary>Аргумент запуска новой сборки: подождать выхода прежнего процесса.</summary>
+    internal const string RestartArgument = "--restart-after";
+
+    private const string BackupSuffix = ".old";
+
     private static readonly Uri LatestReleaseApi =
         new("https://api.github.com/repos/Wintego/honor-pc-helper/releases/latest");
 
     private static readonly HttpClient Http = CreateHttpClient();
+
+    private static string UpdateRoot => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "HonorPCHelper", "AppUpdates");
 
     internal Version CurrentVersion =>
         Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0);
@@ -77,9 +88,7 @@ internal sealed class ApplicationUpdateService
         IProgress<int>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        var updateDirectory = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "HonorPCHelper", "AppUpdates", update.Version.ToString());
+        var updateDirectory = Path.Combine(UpdateRoot, update.Version.ToString());
         Directory.CreateDirectory(updateDirectory);
         var downloadedPath = Path.Combine(updateDirectory, "HonorPCHelper.exe");
 
@@ -104,7 +113,8 @@ internal sealed class ApplicationUpdateService
         }
 
         await ValidateDownloadedApplicationAsync(downloadedPath, update, cancellationToken);
-        ScheduleReplacement(downloadedPath);
+        await ApplyUpdateAsync(downloadedPath, cancellationToken);
+        StartUpdatedApplication();
         Application.Exit();
     }
 
@@ -150,7 +160,40 @@ internal sealed class ApplicationUpdateService
                 "下载的应用程序版本与发布版本不匹配。"));
     }
 
-    private static void ScheduleReplacement(string downloadedPath)
+    /// <summary>
+    /// Ставит новую сборку на место текущей. Переименовать работающий exe
+    /// Windows разрешает, поэтому замена идёт прямо из этого процесса: ни
+    /// вспомогательного скрипта, ни ожидания выхода приложения не нужно.
+    /// Права администратора запрашиваются только там, где каталог приложения
+    /// закрыт на запись, - например, если portable-файл лежит в Program Files.
+    /// </summary>
+    private async Task ApplyUpdateAsync(string downloadedPath, CancellationToken cancellationToken)
+    {
+        var targetPath = ResolveTargetPath();
+        var backupPath = ChooseBackupPath(targetPath);
+
+        if (!TryReplaceInPlace(downloadedPath, targetPath, backupPath))
+            await ReplaceElevatedAsync(downloadedPath, targetPath, backupPath, cancellationToken);
+
+        HideBackup(backupPath);
+        TryDeleteDirectory(Path.GetDirectoryName(downloadedPath));
+    }
+
+    /// <summary>
+    /// Имя для прежней сборки. Обычно достаточно версии, но если файл прошлого
+    /// обновления ещё занят, берём уникальное имя - иначе переименование
+    /// сорвётся и приложение зря попросит права администратора.
+    /// </summary>
+    private string ChooseBackupPath(string targetPath)
+    {
+        var backupPath = $"{targetPath}.{CurrentVersion.ToString(3)}{BackupSuffix}";
+        TryDeleteFile(backupPath);
+        return File.Exists(backupPath)
+            ? $"{targetPath}.{CurrentVersion.ToString(3)}-{Environment.TickCount64:x}{BackupSuffix}"
+            : backupPath;
+    }
+
+    private static string ResolveTargetPath()
     {
         var targetPath = Environment.ProcessPath
             ?? throw new InvalidOperationException(L.T(
@@ -162,12 +205,48 @@ internal sealed class ApplicationUpdateService
                 "Автообновление доступно только для собранного exe-файла.",
                 "Automatic update is available only for the packaged exe.",
                 "自动更新仅适用于打包后的 exe 文件。"));
+        return targetPath;
+    }
 
+    /// <summary>
+    /// Возвращает false, если каталог приложения защищён и замена возможна
+    /// только с повышением прав. При сбое копирования прежняя сборка
+    /// возвращается на место, иначе приложение исчезло бы из своего каталога.
+    /// </summary>
+    private static bool TryReplaceInPlace(string downloadedPath, string targetPath, string backupPath)
+    {
+        try
+        {
+            File.Move(targetPath, backupPath);
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
+        {
+            AppLog.Info($"In-place application update is unavailable: {exception.Message}");
+            return false;
+        }
+
+        try
+        {
+            File.Move(downloadedPath, targetPath);
+            return true;
+        }
+        catch
+        {
+            TryRestore(backupPath, targetPath);
+            throw;
+        }
+    }
+
+    private static async Task ReplaceElevatedAsync(
+        string downloadedPath,
+        string targetPath,
+        string backupPath,
+        CancellationToken cancellationToken)
+    {
         static string PsLiteral(string value) => "'" + value.Replace("'", "''") + "'";
         var script = "$ErrorActionPreference='Stop';"
-            + $"Wait-Process -Id {Environment.ProcessId} -ErrorAction SilentlyContinue;"
-            + $"Copy-Item -LiteralPath {PsLiteral(downloadedPath)} -Destination {PsLiteral(targetPath)} -Force;"
-            + $"Start-Process -FilePath {PsLiteral(targetPath)}";
+            + $"Move-Item -LiteralPath {PsLiteral(targetPath)} -Destination {PsLiteral(backupPath)} -Force;"
+            + $"Copy-Item -LiteralPath {PsLiteral(downloadedPath)} -Destination {PsLiteral(targetPath)} -Force";
         var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
         var startInfo = new ProcessStartInfo("powershell.exe")
         {
@@ -176,11 +255,122 @@ internal sealed class ApplicationUpdateService
             Verb = "runas",
             WindowStyle = ProcessWindowStyle.Hidden
         };
-        _ = Process.Start(startInfo)
+
+        Process? started;
+        try
+        {
+            started = Process.Start(startInfo);
+        }
+        catch (Win32Exception exception) when (exception.NativeErrorCode == 1223)
+        {
+            // Пользователь закрыл запрос UAC - это отказ, а не ошибка.
+            throw new OperationCanceledException(cancellationToken);
+        }
+
+        using var process = started
             ?? throw new InvalidOperationException(L.T(
                 "Не удалось запустить обновление приложения.",
                 "Could not start the application updater.",
                 "无法启动应用程序更新程序。"));
+        await process.WaitForExitAsync(cancellationToken);
+        if (process.ExitCode != 0)
+            throw new IOException(L.T(
+                "Не удалось заменить файл приложения.",
+                "Could not replace the application file.",
+                "无法替换应用程序文件。"));
+    }
+
+    /// <summary>
+    /// Запускает обновлённую сборку. Прежний процесс ещё держит mutex
+    /// единственного экземпляра, поэтому новая получает его pid и дожидается
+    /// выхода. Запуск идёт из текущего процесса, так что новая копия
+    /// наследует обычные права пользователя, а не права установщика.
+    /// </summary>
+    private static void StartUpdatedApplication()
+    {
+        var targetPath = ResolveTargetPath();
+        var startInfo = new ProcessStartInfo(targetPath)
+        {
+            UseShellExecute = true,
+            WorkingDirectory = Path.GetDirectoryName(targetPath) ?? string.Empty
+        };
+        startInfo.ArgumentList.Add(RestartArgument);
+        startInfo.ArgumentList.Add(Environment.ProcessId.ToString(CultureInfo.InvariantCulture));
+        _ = Process.Start(startInfo)
+            ?? throw new InvalidOperationException(L.T(
+                "Не удалось перезапустить приложение.",
+                "Could not restart the application.",
+                "无法重新启动应用程序。"));
+    }
+
+    /// <summary>Убирает следы прошлого обновления: прежний exe и скачанные файлы.</summary>
+    internal static void RemoveUpdateLeftovers()
+    {
+        try
+        {
+            var targetPath = Environment.ProcessPath;
+            var directory = targetPath is null ? null : Path.GetDirectoryName(targetPath);
+            if (!string.IsNullOrEmpty(directory) && Directory.Exists(directory))
+                foreach (var leftover in Directory.EnumerateFiles(
+                             directory, $"{Path.GetFileName(targetPath)}.*{BackupSuffix}"))
+                    TryDeleteFile(leftover);
+            TryDeleteDirectory(UpdateRoot);
+        }
+        catch (Exception exception)
+        {
+            AppLog.Error("Application update cleanup failed", exception);
+        }
+    }
+
+    private static void HideBackup(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+                File.SetAttributes(path, File.GetAttributes(path) | FileAttributes.Hidden);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
+
+    private static void TryRestore(string backupPath, string targetPath)
+    {
+        try
+        {
+            if (File.Exists(backupPath) && !File.Exists(targetPath))
+                File.Move(backupPath, targetPath);
+        }
+        catch (Exception exception)
+        {
+            AppLog.Error("Rolling back the application update failed", exception);
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (!File.Exists(path))
+                return;
+            File.SetAttributes(path, FileAttributes.Normal);
+            File.Delete(path);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
+
+    private static void TryDeleteDirectory(string? path)
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
+                Directory.Delete(path, true);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+        }
     }
 
     private static bool TryParseVersion(string? text, out Version version)

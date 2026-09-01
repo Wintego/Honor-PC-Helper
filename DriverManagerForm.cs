@@ -490,14 +490,19 @@ internal sealed class DriverManagerForm : Form
         catch (Exception exception)
         {
             AppLog.Error("Application update download failed", exception);
-            MessageBox.Show(this, exception.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+            if (!IsDisposed)
+                MessageBox.Show(this, exception.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
         {
-            _progress.Visible = false;
-            _progress.Style = ProgressBarStyle.Marquee;
-            link.Text = versionText;
-            link.Enabled = true;
+            // После удачного обновления форма уже закрывается вместе с приложением.
+            if (!IsDisposed)
+            {
+                _progress.Visible = false;
+                _progress.Style = ProgressBarStyle.Marquee;
+                link.Text = versionText;
+                link.Enabled = true;
+            }
         }
     }
 

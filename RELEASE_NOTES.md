@@ -1,10 +1,9 @@
-## Honor PC Helper 1.8.2
+## Honor PC Helper 1.8.3
 
-Driver list accuracy:
+Application updates:
 
-- Installed driver versions are now read from the right device. Short keywords are matched as whole words, so "Microsoft Input Configuration Device" is no longer mistaken for the neural processor, and the Gaussian & Neural Accelerator of older platforms is no longer reported as the NPU.
-- When several devices belong to one HONOR package, the version shared by most of them is reported instead of the highest one found, and vendor drivers are preferred over the generic Windows ones.
-- Chipset, graphics, camera, fingerprint, monitor, Bluetooth, Wi-Fi and Smart Sound are detected by device class and hardware ID as well as by name, so localised Windows installations and AMD, NVIDIA and non-Intel models are recognised.
-- A package is only announced as an update when its version can actually be compared with the installed one. Undetected components, build dates against driver versions and unrelated numbering schemes are shown for reference instead of being offered as updates that will not install.
-- Package versions are read from the most detailed number in the package title, so an operating system suffix is no longer mistaken for the version.
-- The log now records the detected version of every component and every offered update, which makes model-specific reports easy to check.
+- Updating the portable executable no longer asks for administrator rights. Windows allows a running exe to be renamed, so the new build is put in place by the application itself; the elevation prompt is left only for the case where the executable lives in a write-protected folder such as Program Files.
+- After such an update the application no longer restarts with administrator rights. The new build is started by the ordinary user process, the way it was started before the update.
+- The update no longer depends on a PowerShell helper and no longer waits for the application to exit before replacing the file, so the restart is immediate.
+- If the replacement fails, the previous build is put back instead of leaving the folder without an executable, and declining the elevation prompt is treated as a cancelled update rather than an error.
+- Downloaded update files and the replaced build are removed on the next start instead of being kept in the local application data folder.
