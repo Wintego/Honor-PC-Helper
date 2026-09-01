@@ -46,7 +46,25 @@ internal static class TouchpadVendorLink
         (0x35CC, 0x0104)
     ];
 
+    // Перечисление HID-устройств открывает хендл к каждому устройству системы и
+    // стоит десятки миллисекунд, а спрашивают о тачпаде на каждом открытии меню
+    // трея и на каждой записи настройки. Найденное устройство кэшируется до
+    // следующего WM_DEVICECHANGE или до первой неудачной записи.
+    private static readonly Lock CacheGate = new();
+    private static HidDeviceInfo? _cachedDevice;
+    private static bool _cacheValid;
+
     internal static bool IsSupported() => FindDevice() is not null;
+
+    /// <summary>Сбрасывает кэш устройства: вызывается при подключении/отключении HID.</summary>
+    internal static void InvalidateCache()
+    {
+        lock (CacheGate)
+        {
+            _cachedDevice = null;
+            _cacheValid = false;
+        }
+    }
 
     /// <summary>
     /// Пишет подкоманду в прошивку. Бросает исключение, если устройство
@@ -54,18 +72,37 @@ internal static class TouchpadVendorLink
     /// </summary>
     internal static void Send(byte command, byte value)
     {
-        var device = FindDevice()
-            ?? throw new InvalidOperationException(L.T(
-                "Совместимый тачпад Honor не найден.",
-                "No compatible Honor touchpad was found.",
-                "未找到兼容的荣耀触控板。"));
+        // Первая попытка идёт по кэшированному пути; если устройство успели
+        // переподключить, путь мёртв - кэш сбрасывается и попытка повторяется
+        // с новым перечислением.
+        for (var attempt = 0; ; attempt++)
+        {
+            var device = FindDevice()
+                ?? throw new InvalidOperationException(L.T(
+                    "Совместимый тачпад Honor не найден.",
+                    "No compatible Honor touchpad was found.",
+                    "未找到兼容的荣耀触控板。"));
 
+            if (TrySend(device, command, value, out var error))
+                return;
+
+            InvalidateCache();
+            if (attempt > 0)
+                throw error;
+        }
+    }
+
+    private static bool TrySend(HidDeviceInfo device, byte command, byte value, out Win32Exception error)
+    {
         using var handle = Open(device.Path);
         if (handle.IsInvalid)
-            throw new Win32Exception(Marshal.GetLastWin32Error(), L.T(
+        {
+            error = new Win32Exception(Marshal.GetLastWin32Error(), L.T(
                 "Не удалось открыть тачпад для записи.",
                 "Could not open the touchpad for writing.",
                 "无法打开触控板进行写入。"));
+            return false;
+        }
 
         // Длина буфера должна совпадать с OutputReportByteLength устройства,
         // иначе HID-стек отклоняет запись с ERROR_INVALID_PARAMETER.
@@ -78,11 +115,15 @@ internal static class TouchpadVendorLink
         if (!NativeMethods.WriteFile(handle, report, (uint)report.Length, out var written, IntPtr.Zero)
             || written != report.Length)
         {
-            throw new Win32Exception(Marshal.GetLastWin32Error(), L.T(
+            error = new Win32Exception(Marshal.GetLastWin32Error(), L.T(
                 "Не удалось записать настройку в тачпад.",
                 "Could not write the setting to the touchpad.",
                 "无法将设置写入触控板。"));
+            return false;
         }
+
+        error = null!;
+        return true;
     }
 
     private static SafeFileHandle Open(string path) => NativeMethods.CreateFile(
@@ -91,6 +132,19 @@ internal static class TouchpadVendorLink
         IntPtr.Zero, NativeMethods.OpenExisting, 0, IntPtr.Zero);
 
     private static HidDeviceInfo? FindDevice()
+    {
+        lock (CacheGate)
+        {
+            if (_cacheValid)
+                return _cachedDevice;
+
+            _cachedDevice = FindDeviceCore();
+            _cacheValid = true;
+            return _cachedDevice;
+        }
+    }
+
+    private static HidDeviceInfo? FindDeviceCore()
     {
         try
         {

@@ -10,6 +10,7 @@ dotnet publish (Join-Path $root 'HonorPCHelper.csproj') `
     --self-contained true `
     -p:PublishSingleFile=true `
     -p:IncludeNativeLibrariesForSelfExtract=true `
+    -p:EnableCompressionInSingleFile=true `
     -p:DebugType=None `
     -p:DebugSymbols=false `
     -o $output

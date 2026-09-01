@@ -7,9 +7,12 @@ internal static class DiagnosticsService
     // NotifyIcon.Text не может быть длиннее 127 символов.
     private const int MaxTooltipLength = 127;
 
-    private static long _powerCacheTicks;
-    private static bool _powerCacheValid;
-    private static double? _powerCache;
+    private const int PowerCacheMilliseconds = 2000;
+
+    /// <summary>Снимок мощности вместе со временем измерения: читается и пишется целиком.</summary>
+    private sealed record PowerSample(double? Watts, long Ticks);
+
+    private static PowerSample? _power;
 
     // Подсказка пересобирается при каждом наведении на иконку, поэтому строки
     // складываются в буфер, а локализуются только литералы: интерполяция
@@ -124,9 +127,9 @@ internal static class DiagnosticsService
     {
         // Кэшируется и отсутствие значения: иначе на машине без батареи WMI
         // опрашивался бы при каждой перерисовке подсказки.
-        if (_powerCacheValid
-            && Environment.TickCount64 - Interlocked.Read(ref _powerCacheTicks) < 2000)
-            return _powerCache;
+        var cached = Volatile.Read(ref _power);
+        if (cached is not null && Environment.TickCount64 - cached.Ticks < PowerCacheMilliseconds)
+            return cached.Watts;
 
         double? result = null;
         try
@@ -152,9 +155,7 @@ internal static class DiagnosticsService
             AppLog.Error("Could not read battery power", exception);
         }
 
-        _powerCache = result;
-        _powerCacheValid = true;
-        Interlocked.Exchange(ref _powerCacheTicks, Environment.TickCount64);
+        Volatile.Write(ref _power, new PowerSample(result, Environment.TickCount64));
         return result;
     }
 }

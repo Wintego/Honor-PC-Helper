@@ -1,9 +1,28 @@
-## Honor PC Helper 1.8.3
+## Honor PC Helper 1.9.0
 
-Application updates:
+Download size:
 
-- Updating the portable executable no longer asks for administrator rights. Windows allows a running exe to be renamed, so the new build is put in place by the application itself; the elevation prompt is left only for the case where the executable lives in a write-protected folder such as Program Files.
-- After such an update the application no longer restarts with administrator rights. The new build is started by the ordinary user process, the way it was started before the update.
-- The update no longer depends on a PowerShell helper and no longer waits for the application to exit before replacing the file, so the restart is immediate.
-- If the replacement fails, the previous build is put back instead of leaving the folder without an executable, and declining the elevation prompt is treated as a cancelled update rather than an error.
-- Downloaded update files and the replaced build are removed on the next start instead of being kept in the local application data folder.
+- The portable executable is now compressed: 117 MB → 49 MB. Startup time is unchanged.
+
+Responsiveness:
+
+- The tray icon appears immediately after launch. Everything that talks to WMI and HID — the touchpad readers, the Fn+P event subscription, the first sensor read — is now brought up in the background instead of on the way to the first painted icon.
+- The tray menu no longer enumerates every HID device in the system each time it opens: the touchpad is looked up once and the result is kept until the device is reconnected.
+- Applying a setting from the menu no longer waits in 50 ms steps. The privileged task is polled from 5 ms, and its registration is verified once per session instead of on every command, which also removes a Task Scheduler COM call from each sensor refresh.
+- The four tray icons are drawn once and reused, so a burst of system theme notifications no longer redraws them.
+
+Driver check:
+
+- Requests to the HONOR catalogs are compressed and reuse connections; the slow `Win32_PnPSignedDriver` inventory is enumerated in a single pass.
+- Version and identifier parsing uses compiled regular expressions.
+
+Fixes:
+
+- The driver window no longer leaks font handles every time it is opened.
+- A sensor read or a display wake-up that happens within a few seconds of booting is no longer swallowed by its own rate limit.
+- A touchpad setting written to a device path that went stale is retried once against a freshly enumerated device.
+- The log file is rotated to `.1` instead of being deleted when it reaches 1 MB.
+
+Documentation:
+
+- The READMEs now describe what each menu item actually does, which interfaces and endpoints are used, where settings, logs and downloads are stored, the command-line arguments, and how to uninstall.

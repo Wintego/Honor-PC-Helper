@@ -11,8 +11,13 @@ internal sealed class DriverManagerForm : Form
     private sealed record UpdateCheck(DriverCheckResult Drivers, ApplicationUpdateCheck? Application);
     private static readonly Lock UpdateCheckLock = new();
     private static Task<UpdateCheck>? _firstUpdateCheckTask;
-    private const string SymbolUpdated = "•";
-    private const string SymbolNew = "●";
+    // Шрифты общие для всех открытий окна: раньше каждая надпись создавала
+    // свой Font, и GDI-объекты копились при каждом открытии списка драйверов.
+    private static readonly Font BaseFont = new("Segoe UI", 9F);
+    private static readonly Font BoldFont = new("Segoe UI", 9F, FontStyle.Bold);
+    private static readonly Font LinkFont = new("Segoe UI", 9F, FontStyle.Underline);
+    private static readonly Font LegendFont = new("Segoe UI", 8.5F);
+    private static readonly Font LegendBoldFont = new("Segoe UI", 8.5F, FontStyle.Bold);
     private readonly DriverUpdateService _service = new();
     private readonly ApplicationUpdateService _applicationUpdateService = new();
     private readonly Panel _content = new();
@@ -24,8 +29,6 @@ internal sealed class DriverManagerForm : Form
     private readonly ToolTip _toolTip = new();
     private readonly ProgressBar _progress = new();
     private readonly TextBox _serialNumber = new();
-    private readonly Font _linkFont;
-    private readonly Font _newLinkFont;
     private readonly bool _dark = IsDarkTheme();
     private readonly Color _eco = Color.FromArgb(0, 184, 148);
     private readonly Color _turbo = Color.FromArgb(255, 45, 45);
@@ -44,9 +47,6 @@ internal sealed class DriverManagerForm : Form
         _background = _dark ? Color.FromArgb(28, 28, 28) : Color.White;
         _foreground = _dark ? Color.WhiteSmoke : Color.FromArgb(30, 30, 30);
         _muted = _dark ? Color.FromArgb(135, 135, 135) : Color.Gray;
-        _linkFont = new Font("Segoe UI", 9F, FontStyle.Underline);
-        _newLinkFont = new Font("Segoe UI", 9F, FontStyle.Bold | FontStyle.Underline);
-
         Text = L.T("BIOS и обновления драйверов", "BIOS and Driver Updates", "BIOS 和驱动程序更新");
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(1050, 700);
@@ -54,7 +54,7 @@ internal sealed class DriverManagerForm : Form
         Opacity = 0;
         AutoScaleMode = AutoScaleMode.Dpi;
         ShowIcon = false;
-        Font = new Font("Segoe UI", 9F);
+        Font = BaseFont;
         BackColor = _background;
         ForeColor = _foreground;
 
@@ -90,8 +90,6 @@ internal sealed class DriverManagerForm : Form
         {
             _scanCancellation?.Cancel();
             _scanCancellation?.Dispose();
-            _linkFont.Dispose();
-            _newLinkFont.Dispose();
             _toolTip.Dispose();
         };
     }
@@ -110,14 +108,14 @@ internal sealed class DriverManagerForm : Form
         panel.Controls.Add(new Label
         {
             Text = title,
-            Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+            Font = BoldFont,
             AutoSize = true,
             Location = new Point(68, includeRefresh ? 20 : 14)
         });
         if (!includeRefresh) return panel;
 
         _updatesLabel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        _updatesLabel.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+        _updatesLabel.Font = BoldFont;
         _updatesLabel.TextAlign = ContentAlignment.MiddleRight;
         _updatesLabel.Size = new Size(360, 36);
         _updatesLabel.ForeColor = _eco;
@@ -197,7 +195,7 @@ internal sealed class DriverManagerForm : Form
         Dock = DockStyle.Fill,
         AutoEllipsis = true,
         TextAlign = ContentAlignment.MiddleLeft,
-        Font = new Font("Segoe UI", 8.5F, bold ? FontStyle.Bold : FontStyle.Regular),
+        Font = bold ? LegendBoldFont : LegendFont,
         BackColor = backColor ?? _background,
         ForeColor = backColor is null ? _foreground : Color.White,
         Padding = new Padding(5, 0, 5, 0),
@@ -356,7 +354,7 @@ internal sealed class DriverManagerForm : Form
             AutoEllipsis = true,
             TextAlign = ContentAlignment.MiddleLeft,
             Padding = new Padding(2, 3, 3, 2),
-            Font = _linkFont,
+            Font = LinkFont,
             LinkColor = component.CurrentVersion == "0"
                 ? _muted
                 : update?.IsUpdate == true ? _turbo : _eco,
@@ -398,7 +396,7 @@ internal sealed class DriverManagerForm : Form
             AutoEllipsis = true,
             TextAlign = ContentAlignment.MiddleLeft,
             Padding = new Padding(2, 3, 3, 2),
-            Font = _linkFont,
+            Font = LinkFont,
             LinkColor = update is null ? _eco : _turbo,
             ActiveLinkColor = update is null ? _eco : _turbo,
             Cursor = update is null ? Cursors.Default : Cursors.Hand,

@@ -11,6 +11,12 @@ internal static class PrivilegedHardware
     private const char CommandSeparator = '\u001F';
     private static readonly object RunLock = new();
 
+    // Проверка задачи создаёт COM-объект планировщика и стоит десятки
+    // миллисекунд, а команда уходит на каждое изменение настройки и на каждый
+    // опрос датчиков. Результат кэшируется и сбрасывается, как только запуск
+    // задачи не удался, - тогда следующая попытка проверит регистрацию заново.
+    private static volatile bool _tasksVerified;
+
     internal static void EnsureRegistered()
     {
         dynamic? service = null;
@@ -36,6 +42,7 @@ internal static class PrivilegedHardware
             action.Path = GetExecutablePath();
             action.Arguments = "--run-pending-hardware-command";
             folder.RegisterTaskDefinition(TaskName, definition, 6, null, null, 3, null);
+            _tasksVerified = true;
         }
         finally
         {
@@ -48,6 +55,9 @@ internal static class PrivilegedHardware
 
     internal static bool AreTasksAvailable()
     {
+        if (_tasksVerified)
+            return true;
+
         dynamic? service = null;
         dynamic? folder = null;
         dynamic? task = null;
@@ -61,10 +71,11 @@ internal static class PrivilegedHardware
             definition = task.Definition;
             action = definition.Actions.Item(1);
             var executablePath = Convert.ToString(action.Path);
-            return !string.IsNullOrWhiteSpace(executablePath)
+            _tasksVerified = !string.IsNullOrWhiteSpace(executablePath)
                 && File.Exists(executablePath)
                 && string.Equals(Path.GetFullPath(executablePath), Path.GetFullPath(GetExecutablePath()), StringComparison.OrdinalIgnoreCase)
                 && string.Equals(Convert.ToString(action.Arguments)?.Trim(), "--run-pending-hardware-command", StringComparison.Ordinal);
+            return _tasksVerified;
         }
         catch
         {
@@ -88,6 +99,7 @@ internal static class PrivilegedHardware
         {
             service = CreateService();
             folder = service.GetFolder("\\");
+            _tasksVerified = false;
             DeleteTask(folder, TaskName);
             DeleteTask(folder, "Honor PC Helper Hardware Command");
             DeleteTask(folder, "Honor PC Helper Hardware Settings");
@@ -135,14 +147,30 @@ internal static class PrivilegedHardware
         if (!TryRunTask("--read-sensors", requestId))
             return false;
 
-        var deadline = Environment.TickCount64 + 5000;
-        while (Environment.TickCount64 < deadline)
+        return WaitFor(
+            () => HardwareSettings.SensorSnapshot?.StartsWith(requestId + '|', StringComparison.Ordinal) == true,
+            5000);
+    }
+
+    /// <summary>
+    /// Ждёт результата привилегированного экземпляра. Пауза начинается с пяти
+    /// миллисекунд и растёт до пятидесяти: обычный ответ приходит почти сразу,
+    /// и фиксированный шаг в 50 мс заметно задерживал бы применение настройки.
+    /// </summary>
+    private static bool WaitFor(Func<bool> completed, int timeoutMilliseconds)
+    {
+        var deadline = Environment.TickCount64 + timeoutMilliseconds;
+        var delay = 5;
+        while (true)
         {
-            if (HardwareSettings.SensorSnapshot?.StartsWith(requestId + '|', StringComparison.Ordinal) == true)
+            if (completed())
                 return true;
-            Thread.Sleep(50);
+            if (Environment.TickCount64 >= deadline)
+                return false;
+            Thread.Sleep(delay);
+            if (delay < 50)
+                delay *= 2;
         }
-        return false;
     }
 
     internal static int RunPendingCommand()
@@ -211,17 +239,17 @@ internal static class PrivilegedHardware
                 HardwareSettings.PendingHardwareCommand = string.Join(CommandSeparator, arguments);
                 runningTask = task.Run(null);
 
-                var deadline = Environment.TickCount64 + 10000;
-                while (Environment.TickCount64 < deadline)
-                {
-                    if (HardwareSettings.PendingHardwareCommand is null)
-                        return true;
-                    Thread.Sleep(50);
-                }
+                if (WaitFor(() => HardwareSettings.PendingHardwareCommand is null, 10000))
+                    return true;
+
+                // Задача не ответила: возможно, она указывает на прежний путь
+                // приложения. Следующая команда проверит регистрацию заново.
+                _tasksVerified = false;
                 return false;
             }
             catch (Exception exception)
             {
+                _tasksVerified = false;
                 AppLog.Error($"Could not run privileged hardware command: {string.Join(' ', arguments)}", exception);
                 return false;
             }

@@ -13,16 +13,19 @@ internal sealed class HelperApplicationContext : ApplicationContext
     private readonly System.Windows.Forms.Timer _trayHoverTimer;
     private readonly IntPtr _tooltipHandle;
     private readonly TouchpadBrightnessService _touchpadService;
-    private readonly PowerModeEventService? _powerModeEvents;
+    private PowerModeEventService? _powerModeEvents;
     private readonly BacklightScheduleService _backlightSchedule;
-    private Icon? _trayIcon;
+    private Icon _trayIcon;
     private IntPtr _tooltipText;
     private bool _tooltipAdded;
     private bool _disposed;
     private int _sensorRefreshInProgress;
-    private long _lastSensorRefresh;
+    // Отрицательные значения, чтобы вскоре после загрузки системы, когда
+    // TickCount64 ещё мал, первый опрос датчиков и первое пробуждение экрана
+    // не попадали под свои же интервалы подавления.
+    private long _lastSensorRefresh = -SensorRefreshIntervalMilliseconds;
     private long _suppressBacklightEventsUntil;
-    private long _lastResumeRestore;
+    private long _lastResumeRestore = -ResumeDebounceMilliseconds;
     private IntPtr _displayNotification;
     private IntPtr _hidNotification;
     private readonly System.Windows.Forms.Timer _deviceChangeTimer;
@@ -52,8 +55,11 @@ internal sealed class HelperApplicationContext : ApplicationContext
             NativeMethods.SwpNoMove | NativeMethods.SwpNoSize | NativeMethods.SwpNoActivate);
         _backlightSchedule = new BacklightScheduleService();
         _trayIcon = TrayIconFactory.Create(HardwareSettings.PerformanceModeActive);
-        _tooltipCache = DiagnosticsService.BuildCompactToolTip();
-        _lastTooltipUpdate = Environment.TickCount64;
+        // Подсказка обращается к WMI, поэтому при старте показывается название
+        // приложения, а настоящий текст подставляется первым же обновлением:
+        // значок в трее не должен ждать опроса датчиков.
+        _tooltipCache = "Honor PC Helper";
+        _lastTooltipUpdate = 0;
         _notifyIcon = new NotifyIcon
         {
             Icon = _trayIcon,
@@ -71,34 +77,11 @@ internal sealed class HelperApplicationContext : ApplicationContext
         _deviceChangeTimer.Tick += OnDeviceChangeTimerTick;
 
         _touchpadService = new TouchpadBrightnessService(ShowError);
-        _touchpadService.Start();
         _hidNotification = NativeMethods.RegisterHidDeviceNotification(_window.Handle);
-        // Уровень вибрации и жесты краёв живут в прошивке тачпада
-        // и сбрасываются при перезагрузке.
-        TouchpadHapticsController.Reapply();
-        TouchpadGesturesController.Reapply();
         Microsoft.Win32.SystemEvents.PowerModeChanged += OnSystemPowerModeChanged;
         Microsoft.Win32.SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
         _displayNotification = NativeMethods.RegisterPowerSettingNotification(
             _window.Handle, NativeMethods.GuidConsoleDisplayState, NativeMethods.DeviceNotifyWindowHandle);
-
-        try
-        {
-            _powerModeEvents = new PowerModeEventService(
-                HandlePowerModeChanged,
-                HandleKeyboardBacklightChanged,
-                ShouldIgnoreBacklightEvent);
-            _powerModeEvents.Start();
-        }
-        catch (Exception exception)
-        {
-            _powerModeEvents?.Dispose();
-            AppLog.Error("Could not start HONOR WMI event monitoring", exception);
-            ShowError(L.T(
-                $"Не удалось отслеживать Fn+P: {exception.Message}",
-                $"Failed to monitor Fn+P: {exception.Message}",
-                $"无法监听 Fn+P：{exception.Message}"));
-        }
 
         _backlightSchedule.Start();
         _driverComponentsTask = new DriverUpdateService().BuildDeviceListAsync();
@@ -107,6 +90,52 @@ internal sealed class HelperApplicationContext : ApplicationContext
             CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted,
             TaskScheduler.Default);
+        _ = Task.Run(StartHardwareServices);
+    }
+
+    /// <summary>
+    /// Всё, что обращается к WMI и HID, поднимается в фоне: перечисление
+    /// HID-устройств и подключение к root\wmi занимают сотни миллисекунд,
+    /// а значок в трее должен появляться сразу после запуска.
+    /// </summary>
+    private void StartHardwareServices()
+    {
+        if (_disposed)
+            return;
+
+        _touchpadService.Start();
+        // Меню трея спрашивает о наличии тачпада при каждом открытии - пусть
+        // ответ уже лежит в кэше к тому моменту, как пользователь щёлкнет значок.
+        TouchpadHapticsController.IsSupported();
+        // Уровень вибрации и жесты краёв живут в прошивке тачпада
+        // и сбрасываются при перезагрузке.
+        TouchpadHapticsController.Reapply();
+        TouchpadGesturesController.Reapply();
+
+        try
+        {
+            var events = new PowerModeEventService(
+                HandlePowerModeChanged,
+                HandleKeyboardBacklightChanged,
+                ShouldIgnoreBacklightEvent);
+            events.Start();
+            _powerModeEvents = events;
+            // Приложение могло закрыться, пока служба поднималась.
+            if (_disposed)
+            {
+                events.Dispose();
+                return;
+            }
+        }
+        catch (Exception exception)
+        {
+            AppLog.Error("Could not start HONOR WMI event monitoring", exception);
+            ShowError(L.T(
+                $"Не удалось отслеживать Fn+P: {exception.Message}",
+                $"Failed to monitor Fn+P: {exception.Message}",
+                $"无法监听 Fn+P：{exception.Message}"));
+        }
+
         _ = RefreshSensorsAsync();
     }
 
@@ -138,7 +167,6 @@ internal sealed class HelperApplicationContext : ApplicationContext
             _deviceChangeTimer.Dispose();
             _notifyIcon.Visible = false;
             _notifyIcon.Dispose();
-            _trayIcon?.Dispose();
             _window.DestroyHandle();
         }
         base.Dispose(disposing);
@@ -282,6 +310,8 @@ internal sealed class HelperApplicationContext : ApplicationContext
         if (_disposed)
             return;
 
+        // Путь устройства, найденный до переподключения, больше не действителен.
+        TouchpadVendorLink.InvalidateCache();
         _touchpadService.Restart();
         // Прошивка тачпада забывает свои настройки при переподключении.
         TouchpadHapticsController.Reapply();
@@ -497,10 +527,12 @@ internal sealed class HelperApplicationContext : ApplicationContext
 
     private void UpdateTrayIcon()
     {
-        var previous = _trayIcon;
-        _trayIcon = TrayIconFactory.Create(HardwareSettings.PerformanceModeActive);
-        _notifyIcon.Icon = _trayIcon;
-        previous?.Dispose();
+        var icon = TrayIconFactory.Create(HardwareSettings.PerformanceModeActive);
+        if (ReferenceEquals(icon, _trayIcon))
+            return;
+
+        _trayIcon = icon;
+        _notifyIcon.Icon = icon;
     }
 
     private async void OnSystemPowerModeChanged(object sender, Microsoft.Win32.PowerModeChangedEventArgs eventArgs)

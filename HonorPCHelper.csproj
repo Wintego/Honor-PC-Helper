@@ -6,10 +6,18 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <Version>1.8.3</Version>
+    <Version>1.9.0</Version>
     <AssemblyName>HonorPCHelper</AssemblyName>
     <RootNamespace>HonorPCHelper</RootNamespace>
     <ApplicationIcon>Assets\HonorPCHelper.ico</ApplicationIcon>
+
+    <!-- Фоновое приложение с крошечной кучей: параллельный сборщик мусора
+         держал бы лишний поток и лишнюю память без всякой пользы. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <!-- Тексты интерфейса приложение подставляет само; локализованные ресурсы
+         зависимостей только увеличивают portable-файл. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
 
   <ItemGroup>

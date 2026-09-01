@@ -4,6 +4,7 @@ internal static class AppLog
 {
     private const long MaxFileSize = 1024 * 1024;
     private static readonly object SyncRoot = new();
+    private static bool _directoryCreated;
 
     internal static string FilePath { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -21,10 +22,17 @@ internal static class AppLog
         {
             lock (SyncRoot)
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+                if (!_directoryCreated)
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+                    _directoryCreated = true;
+                }
+
                 var file = new FileInfo(FilePath);
+                // Переполненный журнал уезжает в .1: при разборе проблемы
+                // предыдущие записи обычно и есть самые интересные.
                 if (file.Exists && file.Length > MaxFileSize)
-                    file.Delete();
+                    file.MoveTo(FilePath + ".1", overwrite: true);
 
                 var details = exception is null ? string.Empty : $" | {exception}";
                 File.AppendAllText(FilePath, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [{level}] {message}{details}{Environment.NewLine}");

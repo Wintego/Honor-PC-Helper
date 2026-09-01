@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.IO.Compression;
 using System.Globalization;
 using System.Management;
@@ -39,7 +40,7 @@ internal sealed record DriverCheckResult(
     IReadOnlyDictionary<int, string> AvailableVersions,
     bool IsComplete = true);
 
-internal sealed class DriverUpdateService
+internal sealed partial class DriverUpdateService
 {
     private const string CheckUrl =
         "https://update.platform.hihonorcloud.com/hid_and_common/v2/CheckEx.action?latest=true&verType=true&defenceHijack=true";
@@ -49,7 +50,15 @@ internal sealed class DriverUpdateService
     // Driver endpoints must not inherit a stale local WinINET proxy.  A number
     // of VPN/proxy clients leave 127.0.0.1 configured after they stop, which
     // otherwise turns every update check into a timeout.
-    private static readonly HttpClient Http = new(new SocketsHttpHandler { UseProxy = false })
+    private static readonly HttpClient Http = new(new SocketsHttpHandler
+    {
+        UseProxy = false,
+        // Каталоги HONOR отдают объёмный JSON, а между запросами проходят
+        // секунды: сжатие и переиспользование соединений заметно сокращают
+        // время проверки.
+        AutomaticDecompression = DecompressionMethods.All,
+        PooledConnectionLifetime = TimeSpan.FromMinutes(2)
+    })
     {
         Timeout = TimeSpan.FromMinutes(10)
     };
@@ -78,6 +87,7 @@ internal sealed class DriverUpdateService
 
         var machine = ReadMachineIdentity();
         var dashboard = string.Join(';', serverRequestComponents.Select(component => $"{component.Name}:{component.CurrentVersion}")) + ";";
+        var helperVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? string.Empty;
         var request = new
         {
             components = serverRequestComponents.Select(component => new
@@ -86,7 +96,7 @@ internal sealed class DriverUpdateService
                 PackageName = component.Name,
                 PackageType = component.PackageType,
                 PackageVersionCode = component.CurrentVersion,
-                PackageVersionName = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? string.Empty,
+                PackageVersionName = helperVersion,
                 componentID = component.Id.ToString()
             }),
             rules = new
@@ -232,8 +242,7 @@ internal sealed class DriverUpdateService
         IProgress<int>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        var safeVersion = string.Concat(update.Version.Select(character =>
-            Path.GetInvalidFileNameChars().Contains(character) ? '_' : character));
+        var safeVersion = SafeFileName(update.Version);
         var packageDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "HonorPCHelper", "DriverUpdates", $"{update.Component.Id}_{safeVersion}");
@@ -347,10 +356,16 @@ internal sealed class DriverUpdateService
             && signature[0] == (byte)'P' && signature[1] == (byte)'K';
     }
 
+    private static readonly SearchValues<char> InvalidFileNameChars =
+        SearchValues.Create(Path.GetInvalidFileNameChars());
+
     private static string SafeFileName(string value)
     {
-        var invalid = Path.GetInvalidFileNameChars().ToHashSet();
-        var name = string.Concat(value.Select(character => invalid.Contains(character) ? '_' : character)).Trim();
+        var name = string.Create(value.Length, value, (span, source) =>
+        {
+            for (var index = 0; index < source.Length; index++)
+                span[index] = InvalidFileNameChars.Contains(source[index]) ? '_' : source[index];
+        }).Trim();
         return string.IsNullOrWhiteSpace(name) ? "HONOR-driver" : name;
     }
 
@@ -383,9 +398,15 @@ internal sealed class DriverUpdateService
 
     private static List<DriverComponent> ReadInstalledComponents()
     {
+        // Win32_PnPSignedDriver - самый медленный запрос всей проверки.
+        // Однопроходное перечисление отдаёт объекты по мере готовности
+        // и не держит весь результат в памяти.
         using var searcher = new ManagementObjectSearcher(
             "SELECT DeviceName, DeviceID, DeviceClass, DriverVersion, DriverProviderName "
-            + "FROM Win32_PnPSignedDriver");
+            + "FROM Win32_PnPSignedDriver")
+        {
+            Options = ForwardOnly()
+        };
         using var results = searcher.Get();
         var driverList = new List<PnpDriver>();
         foreach (var item in results)
@@ -474,7 +495,10 @@ internal sealed class DriverUpdateService
             components.Add(new DriverComponent(23, "BIOS", "BIOS", biosVersion, biosPackageType ?? string.Empty));
 
         using var missingSearcher = new ManagementObjectSearcher(
-            "SELECT Name, DeviceID, PNPClass FROM Win32_PnPEntity WHERE ConfigManagerErrorCode = 28");
+            "SELECT Name, DeviceID, PNPClass FROM Win32_PnPEntity WHERE ConfigManagerErrorCode = 28")
+        {
+            Options = ForwardOnly()
+        };
         using var missingResults = missingSearcher.Get();
         var missingDeviceId = -1;
         foreach (var item in missingResults.Cast<ManagementObject>()
@@ -769,10 +793,10 @@ internal sealed class DriverUpdateService
     }
 
     private static string NormalizeIdentity(string value)
-        => Regex.Replace(value, "[^A-Z0-9]", string.Empty, RegexOptions.IgnoreCase).ToUpperInvariant();
+        => NonAlphanumericPattern().Replace(value, string.Empty).ToUpperInvariant();
 
     private static IReadOnlyList<string> ProcessorIdentityTokens(string value)
-        => Regex.Matches(value, @"\b[A-Z0-9]*\d[A-Z0-9-]{2,}\b", RegexOptions.IgnoreCase)
+        => ProcessorTokenPattern().Matches(value)
             .Select(match => NormalizeIdentity(match.Value))
             .Where(token => token.Length >= 4 && token.Any(char.IsLetter) && token.Any(char.IsDigit))
             .Distinct(StringComparer.Ordinal)
@@ -956,13 +980,13 @@ internal sealed class DriverUpdateService
         // A title can carry more than one dotted number ("Chipset 10.1.56.27 for
         // Win11 23.2"), so take the most detailed one instead of the last one, which
         // is usually an operating system or revision suffix.
-        var dotted = System.Text.RegularExpressions.Regex.Matches(value, @"\d+(?:\.\d+)+")
+        var dotted = DottedVersionPattern().Matches(value)
             .Select(match => match.Value)
             .OrderByDescending(match => match.Count(character => character == '.'))
             .FirstOrDefault();
         if (!string.IsNullOrWhiteSpace(dotted))
             return dotted;
-        var numeric = System.Text.RegularExpressions.Regex.Matches(value, @"\d{6,}")
+        var numeric = LongNumberPattern().Matches(value)
             .Select(match => match.Value)
             .LastOrDefault();
         return string.IsNullOrWhiteSpace(numeric) ? value.Trim() : numeric;
@@ -975,14 +999,12 @@ internal sealed class DriverUpdateService
 
     private static string NormalizeSupportTitle(string title, string version)
     {
-        var normalized = System.Text.RegularExpressions.Regex.Replace(
-            title, @"[\s_]*Firmware\s*$", string.Empty,
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim(' ', '_');
+        var normalized = FirmwareSuffixPattern().Replace(title, string.Empty).Trim(' ', '_');
         if (!string.IsNullOrWhiteSpace(version))
         {
-            normalized = System.Text.RegularExpressions.Regex.Replace(
-                normalized, @"[\s_]*" + System.Text.RegularExpressions.Regex.Escape(version) + @"\s*$", string.Empty,
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim(' ', '_');
+            normalized = Regex.Replace(
+                normalized, @"[\s_]*" + Regex.Escape(version) + @"\s*$", string.Empty,
+                RegexOptions.IgnoreCase).Trim(' ', '_');
         }
         return normalized;
     }
@@ -1160,9 +1182,7 @@ internal sealed class DriverUpdateService
 
     private static string FingerprintPackageType(PnpDriver driver)
     {
-        var match = System.Text.RegularExpressions.Regex.Match(
-            driver.DeviceId, @"VID_[0-9A-F]{4}&PID_[0-9A-F]{4}",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        var match = VidPidPattern().Match(driver.DeviceId);
         return match.Success ? match.Value.ToUpperInvariant() : string.Empty;
     }
 
@@ -1212,12 +1232,43 @@ internal sealed class DriverUpdateService
         return Math.Abs(availableParts.Length - installedParts.Length) <= 1;
     }
 
-    private static bool IsDateCode(string value) => Regex.IsMatch(value, @"^20\d{6}$");
+    private static bool IsDateCode(string value) => DateCodePattern().IsMatch(value);
 
     private static int[] VersionParts(string value)
-        => System.Text.RegularExpressions.Regex.Matches(value, @"\d+")
+        => NumberPattern().Matches(value)
             .Select(match => int.TryParse(match.Value, out var part) ? part : 0)
             .ToArray();
+
+    private static System.Management.EnumerationOptions ForwardOnly() => new()
+    {
+        Rewindable = false,
+        ReturnImmediately = true,
+        BlockSize = 64
+    };
+
+    [GeneratedRegex("[^A-Za-z0-9]")]
+    private static partial Regex NonAlphanumericPattern();
+
+    [GeneratedRegex(@"\b[A-Za-z0-9]*\d[A-Za-z0-9-]{2,}\b")]
+    private static partial Regex ProcessorTokenPattern();
+
+    [GeneratedRegex(@"\d+(?:\.\d+)+")]
+    private static partial Regex DottedVersionPattern();
+
+    [GeneratedRegex(@"\d{6,}")]
+    private static partial Regex LongNumberPattern();
+
+    [GeneratedRegex(@"\d+")]
+    private static partial Regex NumberPattern();
+
+    [GeneratedRegex(@"^20\d{6}$")]
+    private static partial Regex DateCodePattern();
+
+    [GeneratedRegex(@"[\s_]*Firmware\s*$", RegexOptions.IgnoreCase)]
+    private static partial Regex FirmwareSuffixPattern();
+
+    [GeneratedRegex("VID_[0-9A-F]{4}&PID_[0-9A-F]{4}", RegexOptions.IgnoreCase)]
+    private static partial Regex VidPidPattern();
 
     private static string? Text(JsonElement element, string name)
         => element.TryGetProperty(name, out var value) ? value.ToString() : null;

@@ -5,6 +5,12 @@ namespace HonorPCHelper;
 
 internal static class TrayIconFactory
 {
+    // Значков всего четыре: две темы на два режима. UserPreferenceChanged
+    // приходит пачками при любой смене системных настроек, поэтому готовые
+    // значки переиспользуются, а не рисуются заново вместе с GDI-хендлом.
+    private static readonly Lock Gate = new();
+    private static readonly Dictionary<(int Size, bool Dark, bool Performance), Icon> Cache = [];
+
     internal static bool IsDarkTheme
     {
         get
@@ -16,17 +22,35 @@ internal static class TrayIconFactory
         }
     }
 
+    /// <summary>
+    /// Возвращает значок трея. Значок принадлежит фабрике и живёт до конца
+    /// работы процесса - освобождать его у вызывающей стороны не нужно.
+    /// </summary>
     internal static Icon Create(bool performanceMode)
     {
         const int smCxSmallIcon = 49;
         var size = Math.Max(16, NativeMethods.GetSystemMetrics(smCxSmallIcon));
+        var dark = IsDarkTheme;
+        lock (Gate)
+        {
+            if (Cache.TryGetValue((size, dark, performanceMode), out var cached))
+                return cached;
+
+            var icon = Render(size, dark, performanceMode);
+            Cache[(size, dark, performanceMode)] = icon;
+            return icon;
+        }
+    }
+
+    private static Icon Render(int size, bool dark, bool performanceMode)
+    {
         using var bitmap = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
         using (var graphics = Graphics.FromImage(bitmap))
         {
             graphics.SmoothingMode = SmoothingMode.None;
             graphics.PixelOffsetMode = PixelOffsetMode.None;
             graphics.Clear(Color.Transparent);
-            var foreground = IsDarkTheme ? Color.White : Color.FromArgb(30, 30, 30);
+            var foreground = dark ? Color.White : Color.FromArgb(30, 30, 30);
             var scale = size / 16f;
             var stroke = Math.Max(1f, MathF.Round(scale));
             var outer = RectangleF.FromLTRB(2 * scale, 2 * scale, 14 * scale, 14 * scale);
