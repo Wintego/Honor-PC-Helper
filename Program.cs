@@ -17,6 +17,8 @@ internal static class Program
     /// - --set-*   запуск с повышением прав через UAC: применяет настройку,
     ///             регистрирует фоновую задачу и показывает ошибку пользователю;
     /// - --apply-* тот же набор настроек из фоновой задачи, молча;
+    /// - --export-drivers &lt;архив&gt; и --import-drivers &lt;источник&gt;  перенос
+    ///             драйверов с повышением прав: итог родительский процесс читает из файла;
     /// - --run-pending-hardware-command  точка входа самой фоновой задачи;
     /// - --restart-after &lt;pid&gt;  запуск после самообновления: ждём выхода прежней сборки.
     /// </summary>
@@ -45,6 +47,11 @@ internal static class Program
             // Пользователь этот запуск не инициировал, поэтому окно с ошибкой не показываем.
             "--grant-brightness-access" => Logged(AlsoRegister(GrantBrightnessAccess), value,
                 "Could not grant Honor ACPI brightness access"),
+
+            // Дочерний процесс окна драйверов: работает молча, результат
+            // передаёт файлом, поэтому обёртки с MessageBox ему не нужны.
+            "--export-drivers" => DriverTransferService.Export(value),
+            "--import-drivers" => DriverTransferService.Import(value),
 
             "--install-privileged-tasks" => Interactive(InstallPrivilegedTasks, value),
             "--uninstall-privileged-tasks" => Interactive(UninstallPrivilegedTasks, value),

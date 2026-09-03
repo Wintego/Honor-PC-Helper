@@ -62,6 +62,7 @@ The left-edge brightness gesture additionally needs a one-time permission on the
 - Green means the installed version matches the offered one, red means an update, grey means the local version could not be determined. A version is called an update only when both numbers are actually comparable — a build date is never compared against a driver version.
 - Clicking a version downloads the package, verifies it and asks where to save it: SHA-256 when the server publishes one, Authenticode signature on every `.exe`, and an Honor/Huawei publisher when the file did not come from an official HONOR host. Archives are unpacked with path-traversal protection.
 - **The installer is never started for you.** You get a verified file and decide whether to run it.
+- **Driver export and import.** The buttons in the list header save every third-party driver in the system to a single zip (`pnputil /export-driver`) and put them back from such an archive or from a single `.inf` (`pnputil /add-driver … /subdirs /install`). Both run in a child process elevated once per operation through UAC; after an import the list is rebuilt, and a required restart is reported separately. The archive is what you want before reinstalling Windows: it does not depend on HONOR's catalog still serving packages for the model.
 
 The same window shows the Honor PC Helper version and offers the update when a newer release exists.
 
@@ -94,6 +95,8 @@ Without arguments the app runs as a tray icon. The rest is used internally, but 
 | `--apply-…` | The same four settings, applied silently by the privileged task |
 | `--install-privileged-tasks` | Creates the privileged task without changing anything |
 | `--uninstall-privileged-tasks` | Removes it (run from an elevated prompt) |
+| `--export-drivers <archive.zip>` | Exports the driver store into an archive (requires administrator rights) |
+| `--import-drivers <archive.zip\|folder\|file.inf>` | Adds the drivers to the store and installs them on the devices |
 | `--restart-after <pid>` | Used by the updater: waits for the old process, then starts the tray |
 
 Exit codes: `0` success, `1` failure, `2` the argument value was not understood.

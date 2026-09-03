@@ -7,7 +7,7 @@ namespace HonorPCHelper;
 
 internal sealed class DriverManagerForm : Form
 {
-    private sealed record DriverRow(DriverComponent Component, Label Title, Label Date, LinkLabel Version);
+    private sealed record DriverRow(DriverComponent Component, Label Date, LinkLabel Version);
     private sealed record UpdateCheck(DriverCheckResult Drivers, ApplicationUpdateCheck? Application);
     private static readonly Lock UpdateCheckLock = new();
     private static Task<UpdateCheck>? _firstUpdateCheckTask;
@@ -18,6 +18,7 @@ internal sealed class DriverManagerForm : Form
     private static readonly Font LinkFont = new("Segoe UI", 9F, FontStyle.Underline);
     private static readonly Font LegendFont = new("Segoe UI", 8.5F);
     private static readonly Font LegendBoldFont = new("Segoe UI", 8.5F, FontStyle.Bold);
+    private static readonly TimeSpan InitialListTimeout = TimeSpan.FromSeconds(5);
     private readonly DriverUpdateService _service = new();
     private readonly ApplicationUpdateService _applicationUpdateService = new();
     private readonly Panel _content = new();
@@ -25,6 +26,8 @@ internal sealed class DriverManagerForm : Form
     private readonly TableLayoutPanel _driversTable = CreateUpdateTable();
     private readonly Label _updatesLabel = new();
     private readonly Button _refreshButton = new();
+    private readonly Button _exportButton = new();
+    private readonly Button _importButton = new();
     private readonly TableLayoutPanel _legend = new();
     private readonly ToolTip _toolTip = new();
     private readonly ProgressBar _progress = new();
@@ -36,8 +39,10 @@ internal sealed class DriverManagerForm : Form
     private readonly Color _foreground;
     private readonly Color _muted;
     private CancellationTokenSource? _scanCancellation;
+    private readonly CancellationTokenSource _transferCancellation = new();
     private Task<IReadOnlyList<DriverComponent>>? _initialComponentsTask;
     private IReadOnlyList<DriverComponent> _components = [];
+    private bool _initialListRendered;
     private readonly Dictionary<int, DriverRow> _driverRows = [];
     private LinkLabel? _applicationVersion;
 
@@ -81,22 +86,46 @@ internal sealed class DriverManagerForm : Form
         Controls.Add(_legend);
 
         _refreshButton.Click += async (_, _) => await ScanAsync(force: true);
-        Shown += (_, _) =>
-        {
-            Opacity = 1;
-            BeginInvoke(async () => await InitializeAsync());
-        };
+        Shown += (_, _) => BeginInvoke(async () => await InitializeAsync());
         FormClosed += (_, _) =>
         {
             _scanCancellation?.Cancel();
             _scanCancellation?.Dispose();
+            _transferCancellation.Cancel();
+            _transferCancellation.Dispose();
             _toolTip.Dispose();
         };
     }
 
+    /// <summary>
+    /// Список устройств собирается ещё при запуске программы, поэтому к моменту
+    /// открытия окна он обычно уже готов. Тогда строки появляются до первого
+    /// показа окна: оно открывается сразу нужной высоты и не подрастает через
+    /// секунду после открытия.
+    /// </summary>
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        var initialTask = _initialComponentsTask;
+        if (initialTask is not { IsCompletedSuccessfully: true }) return;
+        _initialComponentsTask = null;
+        _components = initialTask.Result;
+        RenderRows(_components, [], null);
+        SetCheckingLabel();
+        Opacity = 1;
+    }
+
     private Panel CreateTitle(string title, bool includeRefresh)
     {
-        var panel = new Panel { Dock = DockStyle.Top, Height = includeRefresh ? 60 : 52, BackColor = _background };
+        // Заголовок раздела драйверов должен вмещать кнопки переноса, а их
+        // высота считается от шрифта: при масштабировании интерфейса он
+        // растёт, и фиксированные 52 точки обрезали бы подписи.
+        var panel = new Panel
+        {
+            Dock = DockStyle.Top,
+            Height = includeRefresh ? 60 : DriversTitleHeight,
+            BackColor = _background
+        };
         var iconPanel = new Panel
         {
             Size = new Size(46, 46),
@@ -112,7 +141,7 @@ internal sealed class DriverManagerForm : Form
             AutoSize = true,
             Location = new Point(68, includeRefresh ? 20 : 14)
         });
-        if (!includeRefresh) return panel;
+        if (!includeRefresh) return AddTransferButtons(panel);
 
         _updatesLabel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         _updatesLabel.Font = BoldFont;
@@ -142,6 +171,183 @@ internal sealed class DriverManagerForm : Form
         panel.Resize += (_, _) => Align();
         Align();
         return panel;
+    }
+
+    /// <summary>
+    /// Кнопки переноса драйверов живут в заголовке раздела «Драйверы и
+    /// программы»: они относятся ко всему списку, а не к отдельной строке.
+    /// </summary>
+    private Panel AddTransferButtons(Panel panel)
+    {
+        // Подписи короткие: раздел уже называется «Драйверы и программы»,
+        // а подробность уходит в подсказку.
+        var export = L.T("Экспорт", "Export", "导出");
+        var import = L.T("Импорт", "Import", "导入");
+        // Одинаковая ширина по самой длинной подписи: пара кнопок разного
+        // размера в заголовке смотрится неряшливо, а длина подписи зависит
+        // и от языка, и от масштаба интерфейса.
+        var size = new Size(
+            Math.Max(TransferButtonWidth(export), TransferButtonWidth(import)),
+            TransferButtonHeight);
+        ConfigureTransferButton(_exportButton, export, size,
+            L.T("Сохранить все сторонние драйверы системы в один архив.",
+                "Save every third-party driver installed in the system to a single archive.",
+                "将系统中安装的所有第三方驱动程序保存到一个存档中。"));
+        ConfigureTransferButton(_importButton, import, size,
+            L.T("Установить драйверы из архива или файла INF.",
+                "Install drivers from an archive or an INF file.",
+                "从存档或 INF 文件安装驱动程序。"));
+        _exportButton.Click += async (_, _) => await ExportDriversAsync();
+        _importButton.Click += async (_, _) => await ImportDriversAsync();
+        panel.Controls.Add(_exportButton);
+        panel.Controls.Add(_importButton);
+        void Align()
+        {
+            var top = Math.Max(0, (panel.ClientSize.Height - _importButton.Height) / 2);
+            _importButton.Location = new Point(panel.ClientSize.Width - _importButton.Width - 14, top);
+            _exportButton.Location = new Point(_importButton.Left - _exportButton.Width - 8, top);
+        }
+        panel.Resize += (_, _) => Align();
+        Align();
+        return panel;
+    }
+
+    private static int DriversTitleHeight => Math.Max(52, TransferButtonHeight + 14);
+
+    private static int TransferButtonHeight => Math.Max(28, BaseFont.Height + 12);
+
+    private static int TransferButtonWidth(string text)
+        => TextRenderer.MeasureText(text, BaseFont).Width + BaseFont.Height;
+
+    private void ConfigureTransferButton(Button button, string text, Size size, string hint)
+    {
+        button.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        button.Text = text;
+        button.FlatStyle = FlatStyle.Flat;
+        button.FlatAppearance.BorderSize = 0;
+        button.BackColor = _dark ? Color.FromArgb(45, 45, 45) : Color.FromArgb(235, 235, 235);
+        button.FlatAppearance.MouseOverBackColor = _dark ? Color.FromArgb(58, 58, 58) : Color.FromArgb(222, 222, 222);
+        button.FlatAppearance.MouseDownBackColor = _dark ? Color.FromArgb(70, 70, 70) : Color.FromArgb(208, 208, 208);
+        button.ForeColor = _foreground;
+        button.UseVisualStyleBackColor = false;
+        button.TextAlign = ContentAlignment.MiddleCenter;
+        button.Padding = Padding.Empty;
+        button.Margin = Padding.Empty;
+        button.Size = size;
+        _toolTip.SetToolTip(button, hint);
+    }
+
+    private async Task ExportDriversAsync()
+    {
+        using var dialog = new SaveFileDialog
+        {
+            Title = L.T("Экспорт драйверов", "Export drivers", "导出驱动程序"),
+            FileName = $"{ReadModel()}-drivers-{DateTime.Now:yyyy-MM-dd}.zip",
+            Filter = $"{L.T("Архив драйверов", "Driver archive", "驱动程序存档")} (*.zip)|*.zip",
+            AddExtension = true,
+            DefaultExt = "zip",
+            OverwritePrompt = true
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+            return;
+
+        var archivePath = dialog.FileName;
+        await RunTransferAsync(
+            L.T("Экспорт драйверов…", "Exporting drivers…", "正在导出驱动程序…"),
+            token => DriverTransferService.ExportAsync(archivePath, token),
+            result => L.T(
+                $"Сохранено пакетов драйверов: {result.PackageCount}.\n{archivePath}",
+                $"Driver packages saved: {result.PackageCount}.\n{archivePath}",
+                $"已保存驱动程序包：{result.PackageCount}。\n{archivePath}"),
+            refreshAfterwards: false);
+    }
+
+    private async Task ImportDriversAsync()
+    {
+        using var dialog = new OpenFileDialog
+        {
+            Title = L.T("Импорт драйверов", "Import drivers", "导入驱动程序"),
+            Filter = $"{L.T("Драйверы", "Drivers", "驱动程序")} (*.zip;*.inf)|*.zip;*.inf|"
+                + $"{L.T("Все файлы", "All files", "所有文件")} (*.*)|*.*",
+            CheckFileExists = true,
+            Multiselect = false
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+            return;
+
+        var sourcePath = dialog.FileName;
+        await RunTransferAsync(
+            L.T("Импорт драйверов…", "Importing drivers…", "正在导入驱动程序…"),
+            token => DriverTransferService.ImportAsync(sourcePath, token),
+            result => L.T(
+                $"Установлено пакетов драйверов: {result.PackageCount}.",
+                $"Driver packages installed: {result.PackageCount}.",
+                $"已安装驱动程序包：{result.PackageCount}。")
+                + (result.RebootRequired
+                    ? L.T("\nДля завершения установки нужна перезагрузка.",
+                        "\nA restart is required to finish the installation.",
+                        "\n需要重新启动以完成安装。")
+                    : string.Empty),
+            refreshAfterwards: true);
+    }
+
+    private async Task RunTransferAsync(
+        string busyText,
+        Func<CancellationToken, Task<DriverTransferResult>> operation,
+        Func<DriverTransferResult, string> describe,
+        bool refreshAfterwards)
+    {
+        var previousText = _updatesLabel.Text;
+        var previousColor = _updatesLabel.ForeColor;
+        _exportButton.Enabled = false;
+        _importButton.Enabled = false;
+        _refreshButton.Enabled = false;
+        _updatesLabel.Text = busyText;
+        _updatesLabel.ForeColor = _eco;
+        _progress.Visible = true;
+        var succeeded = false;
+        try
+        {
+            var result = await operation(_transferCancellation.Token);
+            if (IsDisposed)
+                return;
+            succeeded = result.Succeeded;
+            MessageBox.Show(this,
+                result.Succeeded
+                    ? describe(result)
+                    : result.Error ?? L.T("Не удалось перенести драйверы.",
+                        "The drivers could not be transferred.", "无法传输驱动程序。"),
+                Text, MessageBoxButtons.OK,
+                result.Succeeded ? MessageBoxIcon.Information : MessageBoxIcon.Error);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception exception)
+        {
+            AppLog.Error("Driver transfer failed", exception);
+            if (!IsDisposed)
+                MessageBox.Show(this, exception.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            if (!IsDisposed)
+            {
+                _progress.Visible = false;
+                _updatesLabel.Text = previousText;
+                _updatesLabel.ForeColor = previousColor;
+                _exportButton.Enabled = true;
+                _importButton.Enabled = true;
+                _refreshButton.Enabled = true;
+            }
+        }
+
+        // Установленные версии изменились, поэтому список пересобирается
+        // заново — иначе он показывал бы то, что было до импорта.
+        if (succeeded && refreshAfterwards && !IsDisposed)
+        {
+            _components = await _service.BuildDeviceListAsync();
+            RenderRows(_components, [], null);
+            await ScanAsync(force: true);
+        }
     }
 
     private Panel CreatePanel(TableLayoutPanel table)
@@ -248,7 +454,21 @@ internal sealed class DriverManagerForm : Form
     private async Task InitializeAsync()
     {
         _ = LoadSerialNumberAsync();
-        await LoadInitialListAsync();
+        if (!_initialListRendered)
+        {
+            // Пока список не собран, окно остаётся невидимым: иначе пользователь
+            // видит пустое окно, которое через секунду вырастает по высоте.
+            // Ожидание ограничено по времени, чтобы окно не пропало совсем,
+            // если инвентаризация устройств затянулась.
+            var loading = LoadInitialListAsync();
+            try { await loading.WaitAsync(InitialListTimeout); }
+            catch (TimeoutException) { }
+            catch (Exception exception) { AppLog.Error("Initial driver list failed", exception); }
+            if (IsDisposed) return;
+            Opacity = 1;
+            try { await loading; }
+            catch { /* причина уже записана в журнал */ }
+        }
         if (!IsDisposed)
             await ScanAsync(force: false);
     }
@@ -291,6 +511,11 @@ internal sealed class DriverManagerForm : Form
             _components = await _service.BuildDeviceListAsync();
         }
         RenderRows(_components, [], null);
+        SetCheckingLabel();
+    }
+
+    private void SetCheckingLabel()
+    {
         _updatesLabel.Text = L.T("Проверка…", "Checking…", "正在检查…");
         _updatesLabel.ForeColor = _eco;
     }
@@ -333,6 +558,7 @@ internal sealed class DriverManagerForm : Form
                          .OrderBy(Category).ThenBy(c => c.DisplayName))
                 AddRow(_driversTable, component, updatesById.GetValueOrDefault(component.Id));
             Text = $"{L.T("BIOS и обновления драйверов", "BIOS and Driver Updates", "BIOS 和驱动程序更新")}: {ReadModel()} {bios?.CurrentVersion}";
+            _initialListRendered = true;
             FitWindowToRows();
         }
         finally { ResumeLayout(true); }
@@ -343,7 +569,10 @@ internal sealed class DriverManagerForm : Form
         var row = table.RowCount++;
         table.RowStyles.Add(new RowStyle(SizeType.Absolute, Math.Max(40, Font.Height + 16)));
         table.Controls.Add(Cell(Category(component)), 0, row);
-        var title = Cell(update?.PackageTitle ?? component.DeviceName ?? ComponentTitle(component));
+        // Название строки берётся только из локальных данных об устройстве:
+        // после проверки обновлений оно не меняется, поэтому список остаётся
+        // тем же самым, а проверка лишь дополняет строки состоянием версий.
+        var title = Cell(RowTitle(component));
         var date = Cell(FormatDate(update?.ReleaseDate));
         table.Controls.Add(title, 1, row);
         table.Controls.Add(date, 2, row);
@@ -376,7 +605,7 @@ internal sealed class DriverManagerForm : Form
                 await DownloadDriverAsync(driverUpdate, version);
         };
         table.Controls.Add(version, 4, row);
-        _driverRows[component.Id] = new DriverRow(component, title, date, version);
+        _driverRows[component.Id] = new DriverRow(component, date, version);
     }
 
     private void AddApplicationRow(TableLayoutPanel table, ApplicationUpdateCheck? check)
@@ -423,7 +652,6 @@ internal sealed class DriverManagerForm : Form
             foreach (var update in updates)
             {
                 if (!_driverRows.TryGetValue(update.Component.Id, out var row)) continue;
-                row.Title.Text = update.PackageTitle ?? row.Component.DeviceName ?? ComponentTitle(row.Component);
                 row.Date.Text = FormatDate(update.ReleaseDate);
                 row.Version.Text = DisplayVersion(update, row.Component);
                 row.Version.LinkColor = row.Component.CurrentVersion == "0"
@@ -628,7 +856,7 @@ internal sealed class DriverManagerForm : Form
     private void FitWindowToRows()
     {
         var desiredClientHeight = _biosTable.PreferredSize.Height + _driversTable.PreferredSize.Height
-            + 60 + 52 + _legend.Height + _progress.Height + 34;
+            + 60 + DriversTitleHeight + _legend.Height + _progress.Height + 34;
         ClientSize = new Size(1260, Math.Max(680, desiredClientHeight));
         var area = Screen.FromControl(this).WorkingArea;
         Location = new Point(
@@ -657,6 +885,11 @@ internal sealed class DriverManagerForm : Form
         23 => "BIOS",
         _ => component.DisplayName
     };
+
+    private static string RowTitle(DriverComponent component)
+        => string.IsNullOrWhiteSpace(component.DeviceName)
+            ? ComponentTitle(component)
+            : component.DeviceName;
 
     private static string ComponentTitle(DriverComponent component) => component.Id switch
     {
