@@ -2,4 +2,7 @@ bin/
 obj/
 dist/
 
+.dotnet-sdk/
+.verify/
+_ghelper-ref/
 _scan/
