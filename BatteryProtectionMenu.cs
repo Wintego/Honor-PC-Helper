@@ -16,29 +16,29 @@ internal static class BatteryProtectionMenu
                 "允许正常充电至 100%。"));
         menu.AddSeparator();
         menu.AddItem(
-            L.T("Дом (40-70%) - рекомендуется", "Home (40-70%) - recommended", "居家 (40-70%) - 推荐"),
+            L.T("Дом (до 70%)", "Home (up to 70%)", "居家 (上限 70%)"),
             async () => await ApplyModeAsync(BatteryProtectionMode.Home),
             @checked: currentMode == BatteryProtectionMode.Home,
             tooltip: L.T(
-                "Прекращение зарядки при 70 % и возобновление при 40 %.",
-                "Stop charging at 70% and resume at 40%.",
-                "充至 70% 停止充电，降至 40% 恢复充电。"));
+                "Зарядка останавливается на 70 %.",
+                "Charging stops at 70%.",
+                "充至 70% 停止充电。"));
         menu.AddItem(
-            L.T("Офис (70-90%)", "Office (70-90%)", "办公 (70-90%)"),
+            L.T("Офис (до 90%)", "Office (up to 90%)", "办公 (上限 90%)"),
             async () => await ApplyModeAsync(BatteryProtectionMode.Office),
             @checked: currentMode == BatteryProtectionMode.Office,
             tooltip: L.T(
-                "Остановка зарядки при 90 % и возобновление при 70 %.",
-                "Stop charging at 90% and resume at 70%.",
-                "充至 90% 停止充电，降至 70% 恢复充电。"));
+                "Зарядка останавливается на 90 %.",
+                "Charging stops at 90%.",
+                "充至 90% 停止充电。"));
         menu.AddItem(
-            L.T("Путешествия (95-100%)", "Travel (95-100%)", "出行 (95-100%)"),
+            L.T("Путешествия (до 100%)", "Travel (up to 100%)", "出行 (上限 100%)"),
             async () => await ApplyModeAsync(BatteryProtectionMode.Travel),
             @checked: currentMode == BatteryProtectionMode.Travel,
             tooltip: L.T(
-                "Прекращение зарядки при 100 % и возобновление при 95 %.",
-                "Stop charging at 100% and resume at 95%.",
-                "充至 100% 停止充电，降至 95% 恢复充电。"));
+                "Зарядка останавливается на 100 %.",
+                "Charging stops at 100%.",
+                "充至 100% 停止充电。"));
     }
 
     private static Task ApplyModeAsync(BatteryProtectionMode mode)
