@@ -60,14 +60,9 @@ internal static class HardwareSensorController
             0x04 => KeyboardBacklightLevel.High,
             _ => HardwareSettings.KeyboardBacklight
         };
-        HardwareSettings.BatteryProtection = (chargeStart, chargeEnd) switch
-        {
-            (40, 70) => BatteryProtectionMode.Home,
-            (70, 90) => BatteryProtectionMode.Office,
-            (95, 100) => BatteryProtectionMode.Travel,
-            (0, 100) => BatteryProtectionMode.Disabled,
-            _ => HardwareSettings.BatteryProtection
-        };
+        HardwareSettings.BatteryProtection =
+            BatteryProtectionController.FromThresholds(chargeStart, chargeEnd)
+            ?? HardwareSettings.BatteryProtection;
     }
 
     private static int? ReadFan(HonorWmiSession session, byte index)

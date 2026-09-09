@@ -139,12 +139,23 @@ internal static class PrivilegedHardware
         => Task.Run(() => TryRunPowerUnlockTask(enabled));
 
     internal static Task<bool> TryReadSensorsTaskAsync()
-        => Task.Run(TryReadSensorsTask);
+        => Task.Run(() => TryReadSensorsTask(allowElevation: true));
 
-    private static bool TryReadSensorsTask()
+    /// <summary>
+    /// Восстановление настроек после пробуждения человек не инициировал,
+    /// поэтому окно UAC там недопустимо: без установленной фоновой задачи
+    /// команда просто не выполняется.
+    /// </summary>
+    internal static Task<bool> TryRunBatteryTaskSilentlyAsync(BatteryProtectionMode mode)
+        => Task.Run(() => TryRunTask(allowElevation: false, "--apply-battery-mode", mode.ToString()));
+
+    internal static Task<bool> TryReadSensorsSilentlyAsync()
+        => Task.Run(() => TryReadSensorsTask(allowElevation: false));
+
+    private static bool TryReadSensorsTask(bool allowElevation)
     {
         var requestId = Guid.NewGuid().ToString("N");
-        if (!TryRunTask("--read-sensors", requestId))
+        if (!TryRunTask(allowElevation, "--read-sensors", requestId))
             return false;
 
         return WaitFor(
@@ -221,11 +232,14 @@ internal static class PrivilegedHardware
     }
 
     private static bool TryRunTask(params string[] arguments)
+        => TryRunTask(allowElevation: true, arguments);
+
+    private static bool TryRunTask(bool allowElevation, params string[] arguments)
     {
         lock (RunLock)
         {
             if (!AreTasksAvailable())
-                return RunElevatedAndInstall(arguments);
+                return allowElevation && RunElevatedAndInstall(arguments);
 
             dynamic? service = null;
             dynamic? folder = null;

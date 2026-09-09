@@ -28,7 +28,7 @@ One portable `.exe` (~49 MB, self-contained): no installer, no service, no sched
 
 Hovering the tray icon shows the live state: mode, backlight level, charge range, charge/discharge power in watts, CPU and battery temperature, both fan speeds. Sensors are polled at most once every 5 seconds and only while the pointer is on the icon.
 
-Backlight level, haptics and edge gestures are reapplied after resume (including modern standby, where the display-on event is used instead of the unreliable resume event) and after the touchpad reconnects — the firmware forgets all three.
+Backlight level, haptics and edge gestures are reapplied after resume (including modern standby, where the display-on event is used instead of the unreliable resume event) and after the touchpad reconnects — the firmware forgets all three. The charge limit is checked after resume as well: on some models the EC drops the thresholds when the lid is closed and opened again, and the app puts the chosen range back.
 
 Interface language follows the Windows display language: English, Russian, Simplified Chinese.
 

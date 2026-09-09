@@ -15,6 +15,7 @@ internal sealed class HelperApplicationContext : ApplicationContext
     private readonly TouchpadBrightnessService _touchpadService;
     private PowerModeEventService? _powerModeEvents;
     private readonly BacklightScheduleService _backlightSchedule;
+    private readonly BatteryProtectionService _batteryProtection;
     private Icon _trayIcon;
     private IntPtr _tooltipText;
     private bool _tooltipAdded;
@@ -54,6 +55,11 @@ internal sealed class HelperApplicationContext : ApplicationContext
             0, 0, 0, 0,
             NativeMethods.SwpNoMove | NativeMethods.SwpNoSize | NativeMethods.SwpNoActivate);
         _backlightSchedule = new BacklightScheduleService();
+        _batteryProtection = new BatteryProtectionService();
+        // Выбор, сделанный до появления отдельного значения в реестре,
+        // переносится до первого опроса датчиков - иначе пороги, потерянные
+        // прошивкой, успеют его перезаписать.
+        HardwareSettings.SeedPreferredBatteryProtection();
         _trayIcon = TrayIconFactory.Create(HardwareSettings.PerformanceModeActive);
         // Подсказка обращается к WMI, поэтому при старте показывается название
         // приложения, а настоящий текст подставляется первым же обновлением:
@@ -147,6 +153,7 @@ internal sealed class HelperApplicationContext : ApplicationContext
             _touchpadService.Dispose();
             _powerModeEvents?.Dispose();
             _backlightSchedule.Dispose();
+            _batteryProtection.Dispose();
             HideNativeTooltip();
             if (_tooltipHandle != IntPtr.Zero)
                 NativeMethods.DestroyWindow(_tooltipHandle);
@@ -333,6 +340,7 @@ internal sealed class HelperApplicationContext : ApplicationContext
         Interlocked.Exchange(ref _suppressBacklightEventsUntil, now + ResumeSettleMilliseconds);
         AppLog.Info("Display turned on, restoring keyboard backlight");
         _ = _backlightSchedule.RestoreAfterResumeAsync();
+        _ = _batteryProtection.RestoreAfterResumeAsync();
         TouchpadHapticsController.Reapply();
         TouchpadGesturesController.Reapply();
     }
@@ -558,6 +566,7 @@ internal sealed class HelperApplicationContext : ApplicationContext
             HandlePowerModeChanged(false);
             Interlocked.Exchange(ref _suppressBacklightEventsUntil, Environment.TickCount64 + ResumeSettleMilliseconds);
             _ = _backlightSchedule.RestoreAfterResumeAsync();
+            _ = _batteryProtection.RestoreAfterResumeAsync();
         }
     }
 

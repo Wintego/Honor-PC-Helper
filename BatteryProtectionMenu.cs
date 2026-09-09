@@ -49,5 +49,11 @@ internal static class BatteryProtectionMenu
             L.T("Не удалось запустить настройку батареи.",
                 "Could not start battery configuration.",
                 "无法启动电池设置。"),
-            () => HardwareSettings.BatteryProtection = mode);
+            () =>
+            {
+                HardwareSettings.BatteryProtection = mode;
+                // Выбор человека нужен и после пробуждения: опрос датчиков
+                // перепишет BatteryProtection тем, что осталось в EC.
+                HardwareSettings.PreferredBatteryProtection = mode;
+            });
 }

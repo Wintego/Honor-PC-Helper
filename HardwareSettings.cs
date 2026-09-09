@@ -19,6 +19,7 @@ internal static class HardwareSettings
     private const ushort DefaultBacklightTimeout = 60;
     private const string PerformanceModeValue = "PerformanceModeActive";
     private const string BatteryProtectionValue = "BatteryProtectionMode";
+    private const string PreferredBatteryProtectionValue = "PreferredBatteryProtectionMode";
     private const string PowerUnlockValue = "PowerUnlockEnabled";
     private const string BacklightScheduleEnabledValue = "BacklightScheduleEnabled";
     private const string BacklightOnHourValue = "BacklightOnHour";
@@ -98,10 +99,41 @@ internal static class HardwareSettings
             value == KeyboardBacklightLevel.Off ? KeyboardBacklightLevel.Low : value);
     }
 
+    /// <summary>
+    /// Режим, который сейчас в EC. Значение перечитывается при каждом опросе
+    /// датчиков, поэтому прошивка, забывшая пороги, его перепишет.
+    /// </summary>
     internal static BatteryProtectionMode? BatteryProtection
     {
         get => ReadEnum<BatteryProtectionMode>(BatteryProtectionValue);
         set => WriteEnum(BatteryProtectionValue, value);
+    }
+
+    /// <summary>
+    /// Режим, выбранный человеком в меню. Опрос датчиков его не трогает -
+    /// именно к нему возвращаются пороги после пробуждения.
+    /// </summary>
+    internal static BatteryProtectionMode? PreferredBatteryProtection
+    {
+        get => ReadEnum<BatteryProtectionMode>(PreferredBatteryProtectionValue);
+        set => WriteEnum(PreferredBatteryProtectionValue, value);
+    }
+
+    /// <summary>
+    /// Переносит выбор, сделанный до появления отдельного значения: при первом
+    /// запуске новой сборки в BatteryProtectionMode лежит последний режим,
+    /// который пользователь видел в меню.
+    /// </summary>
+    internal static void SeedPreferredBatteryProtection()
+    {
+        lock (Gate)
+        {
+            var key = Key();
+            if (key.GetValue(PreferredBatteryProtectionValue) is not null)
+                return;
+            if (key.GetValue(BatteryProtectionValue) is string current)
+                key.SetValue(PreferredBatteryProtectionValue, current, RegistryValueKind.String);
+        }
     }
 
     internal static bool? PowerUnlock
