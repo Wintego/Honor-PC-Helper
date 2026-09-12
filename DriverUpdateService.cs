@@ -678,19 +678,24 @@ internal sealed partial class DriverUpdateService
         return ([], [], new Dictionary<int, string>(), !hadFailure);
     }
 
+    // A verified model to offering shortcut for the machine this project is
+    // developed on: HONOR MagicBook Pro 14 2026 Ultra X7-358H (ZQC-P / ZhuqueC),
+    // which the support catalog knows only by its offering code.
+    //
+    // The match names the model and its processor, and deliberately ignores the
+    // CVersion platform code: C233 covers ZhuqueC, XuanwuC and JiguangC alike, so
+    // keying on it handed a MagicBook 16 2026 (JGC-N, offering OFFE00421315) the
+    // Pro 14 catalog - an Audio package from another codec that never raised the
+    // installed version, and a BIOS 1.10 that belongs to a different board.
+    // Every other machine resolves its own offering from the product tree.
     private static IReadOnlyList<string> KnownSupportOfferings(MachineIdentity machine)
     {
-        // HONOR MagicBook Pro 14 2026 (ZQC-P / ZhuqueC, platform C233).
-        // The public support catalog identifies this model by its offering code
-        // rather than any of the identifiers exposed by Windows.
         var identifiers = machine.Identifiers
             .Append(machine.DeviceName)
-            .Append(machine.CVersion)
             .Select(NormalizeIdentity)
             .ToHashSet(StringComparer.Ordinal);
-        return identifiers.Contains("ZQCP")
-               || identifiers.Contains("ZHUQUEC")
-               || identifiers.Contains("C233")
+        return (identifiers.Contains("ZQCP") || identifiers.Contains("ZHUQUEC"))
+            && ProcessorIdentityTokens(machine.ProcessorName).Contains("358H")
             ? ["OFFE00461151"]
             : [];
     }
