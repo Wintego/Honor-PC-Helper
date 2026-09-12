@@ -874,13 +874,16 @@ internal sealed class DriverManagerForm : Form
     private static string Category(DriverComponent component) => component.Id switch
     {
         1 or 2 or 4 or 6 or 12 or 55 or 56 or 65 or 73 or 74 => L.T("Чипсет", "Chipset", "芯片组"),
-        3 or 41 or 78 or 87 => L.T("Графика", "Graphics", "显卡"),
+        3 or 87 => L.T("Графика", "Graphics", "显卡"),
         14 => L.T("Аудио", "Audio", "音频"),
         15 => L.T("Сеть", "Networking", "网络"),
         16 => "Bluetooth",
         18 => L.T("Сканер отпечатка", "Fingerprint", "指纹识别"),
+        41 => L.T("Монитор", "Monitor", "显示器"),
         52 => "NFC",
-        76 => L.T("Камера", "Camera", "摄像头"),
+        // Windows Studio Effects processes the camera image; under "Graphics" the
+        // row read as a display driver.
+        76 or 78 => L.T("Камера", "Camera", "摄像头"),
         88 => L.T("Программы и утилиты", "Software and utilities", "软件和实用工具"),
         23 => "BIOS",
         _ => component.DisplayName
