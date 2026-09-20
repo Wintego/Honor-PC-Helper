@@ -16,6 +16,7 @@ internal sealed class HelperApplicationContext : ApplicationContext
     private PowerModeEventService? _powerModeEvents;
     private readonly BacklightScheduleService _backlightSchedule;
     private readonly BatteryProtectionService _batteryProtection;
+    private readonly MicMuteService _micMute;
     private Icon _trayIcon;
     private IntPtr _tooltipText;
     private bool _tooltipAdded;
@@ -56,6 +57,7 @@ internal sealed class HelperApplicationContext : ApplicationContext
             NativeMethods.SwpNoMove | NativeMethods.SwpNoSize | NativeMethods.SwpNoActivate);
         _backlightSchedule = new BacklightScheduleService();
         _batteryProtection = new BatteryProtectionService();
+        _micMute = new MicMuteService();
         // Выбор, сделанный до появления отдельного значения в реестре,
         // переносится до первого опроса датчиков - иначе пороги, потерянные
         // прошивкой, успеют его перезаписать.
@@ -117,12 +119,16 @@ internal sealed class HelperApplicationContext : ApplicationContext
         // и сбрасываются при перезагрузке.
         TouchpadHapticsController.Reapply();
         TouchpadGesturesController.Reapply();
+        // Индикатор микрофона прошивка не восстанавливает: после перезагрузки
+        // он мог остаться включённым при живом микрофоне.
+        _micMute.Sync();
 
         try
         {
             var events = new PowerModeEventService(
                 HandlePowerModeChanged,
                 HandleKeyboardBacklightChanged,
+                HandleMicMuteKey,
                 ShouldIgnoreBacklightEvent);
             events.Start();
             _powerModeEvents = events;
@@ -154,6 +160,7 @@ internal sealed class HelperApplicationContext : ApplicationContext
             _powerModeEvents?.Dispose();
             _backlightSchedule.Dispose();
             _batteryProtection.Dispose();
+            _micMute.Dispose();
             HideNativeTooltip();
             if (_tooltipHandle != IntPtr.Zero)
                 NativeMethods.DestroyWindow(_tooltipHandle);
@@ -343,6 +350,8 @@ internal sealed class HelperApplicationContext : ApplicationContext
         _ = _batteryProtection.RestoreAfterResumeAsync();
         TouchpadHapticsController.Reapply();
         TouchpadGesturesController.Reapply();
+        // Индикатор микрофона прошивка после сна не восстанавливает.
+        _ = Task.Run(_micMute.Sync);
     }
 
     private void HandleKeyboardBacklightChanged(KeyboardBacklightLevel level)
@@ -361,6 +370,16 @@ internal sealed class HelperApplicationContext : ApplicationContext
         catch (InvalidOperationException)
         {
         }
+    }
+
+    // Клавиша F7. Обращение к звуковому движку и к BIOS занимает заметное время,
+    // а поток события WMI держать нельзя: он общий на все события прошивки.
+    private void HandleMicMuteKey()
+    {
+        if (_disposed)
+            return;
+
+        _ = Task.Run(_micMute.Toggle);
     }
 
     private void OnTrayIconMouseMove(object? sender, MouseEventArgs eventArgs)
@@ -567,6 +586,7 @@ internal sealed class HelperApplicationContext : ApplicationContext
             Interlocked.Exchange(ref _suppressBacklightEventsUntil, Environment.TickCount64 + ResumeSettleMilliseconds);
             _ = _backlightSchedule.RestoreAfterResumeAsync();
             _ = _batteryProtection.RestoreAfterResumeAsync();
+            _ = Task.Run(_micMute.Sync);
         }
     }
 

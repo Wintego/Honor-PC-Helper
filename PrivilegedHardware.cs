@@ -217,7 +217,7 @@ internal static class PrivilegedHardware
                 && bool.TryParse(parts[1], out var enabled))
                 new PowerUnlockController().SetEnabled(enabled);
             else if (parts[0] == "--grant-brightness-access")
-                HonorAcpiBrightness.GrantAccess();
+                HonorAcpiDirect.GrantAccess();
             else if (parts[0] == "--read-sensors")
                 HardwareSensorController.ReadAndStore(parts[1]);
             else

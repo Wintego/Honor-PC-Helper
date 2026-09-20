@@ -197,10 +197,10 @@ internal static class Program
         return true;
     }
 
-    // Выдаёт текущему пользователю право вызывать ACPI-WMI блок яркости.
+    // Выдаёт текущему пользователю право вызывать блок данных ACPI-WMI.
     private static bool GrantBrightnessAccess(string? _)
     {
-        HonorAcpiBrightness.GrantAccess();
+        HonorAcpiDirect.GrantAccess();
         return true;
     }
 

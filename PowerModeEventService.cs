@@ -4,20 +4,36 @@ namespace HonorPCHelper;
 
 internal sealed class PowerModeEventService : IDisposable
 {
+    // Клавиша микрофона; код совпадает с KEY_MICMUTE из huawei-wmi.
+    private const uint MicMuteKeyCode = 0x287;
+
+    // Клавиша переключает состояние, поэтому лишнее событие обошлось бы дорого.
+    // На проверенной машине одно нажатие даёт ровно одно событие, но у другой
+    // прошивки это не гарантировано. Порог подавляющий - отсчёт продлевается
+    // и погашенным событием, - поэтому пачка любой длины даёт ровно одно
+    // переключение, по первому событию и без задержки.
+    private const int HotkeyDebounceMilliseconds = 400;
+
     private readonly Action<bool> _onModeChanged;
     private readonly Action<KeyboardBacklightLevel> _onBacklightChanged;
+    private readonly Action _onMicMuteKey;
     private readonly Func<bool>? _shouldIgnoreBacklightEvent;
     private ManagementEventWatcher? _watcher;
     private long _lastEventTime;
+    // Отрицательное значение, чтобы вскоре после загрузки системы, когда
+    // TickCount64 ещё мал, первое нажатие не попадало под собственный порог.
+    private long _lastMicMuteKeyTime = -HotkeyDebounceMilliseconds;
     private volatile bool _currentState = HardwareSettings.PerformanceModeActive;
 
     internal PowerModeEventService(
         Action<bool> onModeChanged,
         Action<KeyboardBacklightLevel> onBacklightChanged,
+        Action onMicMuteKey,
         Func<bool>? shouldIgnoreBacklightEvent = null)
     {
         _onModeChanged = onModeChanged;
         _onBacklightChanged = onBacklightChanged;
+        _onMicMuteKey = onMicMuteKey;
         _shouldIgnoreBacklightEvent = shouldIgnoreBacklightEvent;
     }
 
@@ -66,6 +82,13 @@ internal sealed class PowerModeEventService : IDisposable
             return;
 
         var code = Convert.ToUInt32(value) & 0xFFFF;
+        if (code == MicMuteKeyCode)
+        {
+            if (Accept(ref _lastMicMuteKeyTime))
+                _onMicMuteKey();
+            return;
+        }
+
         if (code is 0x2B1 or 0x2B2 or 0x2B3)
         {
             // Right after wake the firmware re-initializes the backlight and emits
@@ -100,5 +123,16 @@ internal sealed class PowerModeEventService : IDisposable
         };
         HardwareSettings.PerformanceModeActive = _currentState;
         _onModeChanged(_currentState);
+    }
+
+    /// <summary>
+    /// Пропускает первое событие пачки и гасит остальные. Отсчёт сдвигается
+    /// и погашенным событием: пока прошивка повторяет нажатие, порог не истекает.
+    /// </summary>
+    private static bool Accept(ref long lastTime)
+    {
+        var now = Environment.TickCount64;
+        var previous = Interlocked.Exchange(ref lastTime, now);
+        return now - previous >= HotkeyDebounceMilliseconds;
     }
 }

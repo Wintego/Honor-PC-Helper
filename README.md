@@ -28,6 +28,16 @@ One portable `.exe` (~49 MB, self-contained): no installer, no service, no sched
 
 Hovering the tray icon shows the live state: mode, backlight level, charge range, charge/discharge power in watts, CPU and battery temperature, both fan speeds. Sensors are polled at most once every 5 seconds and only while the pointer is on the icon.
 
+## Function keys
+
+The keyboard does not act on its own: **F7** only raises a BIOS event, and the vendor software used to do the rest. Honor PC Helper handles it, so the key works without HONOR PC Manager installed.
+
+**F7** mutes and unmutes the default recording device — the same mute that Windows sound settings show — and sets the LED in the key to match. The LED also follows a mute made anywhere else, such as from the volume mixer, and is restored after wake and at startup.
+
+The LED is driven by a BIOS command (`04 0B`), not by the firmware itself — the same command mainline Linux uses as `MICMUTE_LED_SET`. That is why the light stays stuck where the vendor software left it once that software is removed: the key never controlled it.
+
+**Fn+P** (performance mode) is handled as well; it is listed in the tray menu table above.
+
 Backlight level, haptics and edge gestures are reapplied after resume (including modern standby, where the display-on event is used instead of the unreliable resume event) and after the touchpad reconnects — the firmware forgets all three. The charge limit is checked after resume as well: on some models the EC drops the thresholds when the lid is closed and opened again, and the app puts the chosen range back.
 
 Interface language follows the Windows display language: English, Russian, Simplified Chinese.
@@ -108,6 +118,8 @@ Exit codes: `0` success, `1` failure, `2` the argument value was not understood.
 **A setting does not apply.** Look at `%LocalAppData%\HonorPCHelper\HonorPCHelper.log`; every rejected BIOS command is logged with its error code. If the privileged task was deleted or the exe was moved, the next change re-registers it with one UAC prompt.
 
 **Fn+P is not reflected in the menu.** The app listens to `OemWMIEvent`; if the WMI event subscription could not start, the reason is in the log.
+
+**F7 does nothing.** It rides on the same `OemWMIEvent` subscription as Fn+P, so check the log for that first. The event code differs between models — `0x287` was read from a MagicBook Pro 14. If yours sends something else, the key stays silent; open an issue with the code your machine reports.
 
 **The brightness edge swipe changes brightness but shows no OSD.** The ACPI-WMI permission has not been granted yet — change any hardware setting once so the privileged task exists, then swipe again.
 
