@@ -126,6 +126,12 @@ internal static class PrivilegedHardware
     internal static bool TryRunGrantBrightnessAccessTask()
         => TryRunTask("--grant-brightness-access", "1");
 
+    internal static bool TryRunCameraTask(bool off)
+        => TryRunTask("--apply-camera-off", off.ToString());
+
+    internal static bool TryRunGrantCameraAccessTask()
+        => TryRunTask("--grant-camera-access", "1");
+
     internal static Task<bool> TryRunBacklightTaskAsync(KeyboardBacklightLevel level)
         => Task.Run(() => TryRunBacklightTask(level));
 
@@ -216,8 +222,13 @@ internal static class PrivilegedHardware
             else if (parts[0] == "--apply-power-unlock"
                 && bool.TryParse(parts[1], out var enabled))
                 new PowerUnlockController().SetEnabled(enabled);
+            else if (parts[0] == "--apply-camera-off"
+                && bool.TryParse(parts[1], out var cameraOff))
+                CameraMuteController.SetCameraOff(cameraOff);
             else if (parts[0] == "--grant-brightness-access")
                 HonorAcpiDirect.GrantAccess();
+            else if (parts[0] == "--grant-camera-access")
+                CameraMuteController.GrantAccess();
             else if (parts[0] == "--read-sensors")
                 HardwareSensorController.ReadAndStore(parts[1]);
             else

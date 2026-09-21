@@ -45,6 +45,7 @@ internal sealed class DriverManagerForm : Form
     private bool _initialListRendered;
     private readonly Dictionary<int, DriverRow> _driverRows = [];
     private LinkLabel? _applicationVersion;
+    private ApplicationUpdate? _requestedApplicationUpdate;
 
     internal DriverManagerForm(Task<IReadOnlyList<DriverComponent>>? initialComponentsTask = null)
     {
@@ -493,6 +494,10 @@ internal sealed class DriverManagerForm : Form
         ApplicationUpdateCheck? application = null;
         try { application = await applicationTask; }
         catch (Exception exception) { AppLog.Error("Application update check failed", exception); }
+        // Сорвавшаяся проверка ничего не говорит о наличии обновления, поэтому
+        // точку на значке трея гасит или зажигает только удавшаяся.
+        if (application is not null)
+            ApplicationUpdateWatcher.Publish(application.Update);
         return new UpdateCheck(await driverTask, application);
     }
 
@@ -562,6 +567,11 @@ internal sealed class DriverManagerForm : Form
             FitWindowToRows();
         }
         finally { ResumeLayout(true); }
+
+        // Запуск откладывается до конца раскладки: иначе полоса загрузки
+        // появилась бы в окне, которое ещё подбирает себе высоту.
+        if (_requestedApplicationUpdate is not null && IsHandleCreated)
+            BeginInvoke(StartRequestedApplicationUpdate);
     }
 
     private void AddRow(TableLayoutPanel table, DriverComponent component, DriverUpdate? update)
@@ -606,6 +616,28 @@ internal sealed class DriverManagerForm : Form
         };
         table.Controls.Add(version, 4, row);
         _driverRows[component.Id] = new DriverRow(component, date, version);
+    }
+
+    /// <summary>
+    /// Обновление, запрошенное из меню трея. Строка приложения появляется
+    /// только после первой отрисовки списка, поэтому запрос либо выполняется
+    /// сразу, либо ждёт её.
+    /// </summary>
+    internal void RequestApplicationUpdate(ApplicationUpdate update)
+    {
+        _requestedApplicationUpdate = update;
+        if (_applicationVersion is not null)
+            StartRequestedApplicationUpdate();
+    }
+
+    private void StartRequestedApplicationUpdate()
+    {
+        var update = _requestedApplicationUpdate;
+        _requestedApplicationUpdate = null;
+        // Отключённая ссылка означает, что загрузка уже идёт.
+        if (update is null || IsDisposed || _applicationVersion is not { Enabled: true } link)
+            return;
+        _ = DownloadApplicationUpdateAsync(update, link);
     }
 
     private void AddApplicationRow(TableLayoutPanel table, ApplicationUpdateCheck? check)

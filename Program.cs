@@ -35,18 +35,24 @@ internal static class Program
             "--set-power-unlock" => Interactive(AlsoRegister(SetPowerUnlock), value),
             "--set-keyboard-backlight" => Interactive(AlsoRegister(SetKeyboardBacklight), value),
             "--set-keyboard-backlight-timeout" => Interactive(AlsoRegister(SetKeyboardBacklightTimeout), value),
+            "--set-camera-off" => Interactive(AlsoRegister(SetCameraOff), value),
             "--read-sensors" => Interactive(AlsoRegister(ReadSensors), value),
 
             "--apply-battery-mode" => Silent(SetBatteryMode, value),
             "--apply-power-unlock" => Silent(SetPowerUnlock, value),
             "--apply-keyboard-backlight" => Silent(SetKeyboardBacklight, value),
             "--apply-keyboard-backlight-timeout" => Silent(SetKeyboardBacklightTimeout, value),
+            "--apply-camera-off" => Silent(SetCameraOff, value),
 
             // Приходит и со значением (через фоновую задачу), и без него,
             // когда задача ещё не установлена и приложение поднимается через UAC.
             // Пользователь этот запуск не инициировал, поэтому окно с ошибкой не показываем.
             "--grant-brightness-access" => Logged(AlsoRegister(GrantBrightnessAccess), value,
                 "Could not grant Honor ACPI brightness access"),
+
+            // Тоже приходит без участия человека - по первому нажатию F8.
+            "--grant-camera-access" => Logged(AlsoRegister(GrantCameraAccess), value,
+                "Could not grant camera switch access"),
 
             // Дочерний процесс окна драйверов: работает молча, результат
             // передаёт файлом, поэтому обёртки с MessageBox ему не нужны.
@@ -188,6 +194,15 @@ internal static class Program
         return true;
     }
 
+    private static bool SetCameraOff(string? value)
+    {
+        if (!bool.TryParse(value, out var off))
+            return false;
+
+        CameraMuteController.SetCameraOff(off);
+        return true;
+    }
+
     private static bool ReadSensors(string? requestId)
     {
         if (string.IsNullOrEmpty(requestId))
@@ -201,6 +216,13 @@ internal static class Program
     private static bool GrantBrightnessAccess(string? _)
     {
         HonorAcpiDirect.GrantAccess();
+        return true;
+    }
+
+    // Выдаёт текущему пользователю право переключать камеру.
+    private static bool GrantCameraAccess(string? _)
+    {
+        CameraMuteController.GrantAccess();
         return true;
     }
 

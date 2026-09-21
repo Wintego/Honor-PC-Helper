@@ -7,6 +7,10 @@ internal sealed class PowerModeEventService : IDisposable
     // Клавиша микрофона; код совпадает с KEY_MICMUTE из huawei-wmi.
     private const uint MicMuteKeyCode = 0x287;
 
+    // Клавиша камеры. Код снят с MagicBook Pro 14: huawei-wmi отдаёт его
+    // как KEY_WLAN, но на этой клавиатуре F8 - именно камера.
+    private const uint CameraKeyCode = 0x288;
+
     // Клавиша переключает состояние, поэтому лишнее событие обошлось бы дорого.
     // На проверенной машине одно нажатие даёт ровно одно событие, но у другой
     // прошивки это не гарантировано. Порог подавляющий - отсчёт продлевается
@@ -17,23 +21,27 @@ internal sealed class PowerModeEventService : IDisposable
     private readonly Action<bool> _onModeChanged;
     private readonly Action<KeyboardBacklightLevel> _onBacklightChanged;
     private readonly Action _onMicMuteKey;
+    private readonly Action _onCameraKey;
     private readonly Func<bool>? _shouldIgnoreBacklightEvent;
     private ManagementEventWatcher? _watcher;
     private long _lastEventTime;
-    // Отрицательное значение, чтобы вскоре после загрузки системы, когда
+    // Отрицательные значения, чтобы вскоре после загрузки системы, когда
     // TickCount64 ещё мал, первое нажатие не попадало под собственный порог.
     private long _lastMicMuteKeyTime = -HotkeyDebounceMilliseconds;
+    private long _lastCameraKeyTime = -HotkeyDebounceMilliseconds;
     private volatile bool _currentState = HardwareSettings.PerformanceModeActive;
 
     internal PowerModeEventService(
         Action<bool> onModeChanged,
         Action<KeyboardBacklightLevel> onBacklightChanged,
         Action onMicMuteKey,
+        Action onCameraKey,
         Func<bool>? shouldIgnoreBacklightEvent = null)
     {
         _onModeChanged = onModeChanged;
         _onBacklightChanged = onBacklightChanged;
         _onMicMuteKey = onMicMuteKey;
+        _onCameraKey = onCameraKey;
         _shouldIgnoreBacklightEvent = shouldIgnoreBacklightEvent;
     }
 
@@ -86,6 +94,13 @@ internal sealed class PowerModeEventService : IDisposable
         {
             if (Accept(ref _lastMicMuteKeyTime))
                 _onMicMuteKey();
+            return;
+        }
+
+        if (code == CameraKeyCode)
+        {
+            if (Accept(ref _lastCameraKeyTime))
+                _onCameraKey();
             return;
         }
 

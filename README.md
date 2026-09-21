@@ -6,23 +6,24 @@
 [![Downloads](https://img.shields.io/github/downloads/Wintego/Honor-PC-Helper/total)](https://github.com/Wintego/Honor-PC-Helper/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011%20x64-blue)](#requirements)
 
-**Honor PC Helper** is an open-source **alternative to HONOR PC Manager** for the hardware settings: battery charge limit, keyboard backlight, performance mode, touchpad haptics and edge gestures, plus driver updates from HONOR's own catalogs. It drives the HONOR BIOS WMI interface directly — the same `OemWMIMethod` calls PC Manager makes — so nothing from the vendor suite has to be installed or running.
+**Honor PC Helper** controls HONOR laptop hardware from the Windows tray: battery charge limit, keyboard backlight, performance mode, touchpad haptics and edge gestures, the microphone and camera function keys, and driver updates from HONOR's catalogs. It drives the HONOR BIOS WMI interface directly, so HONOR PC Manager does not have to be installed or running.
 
-One portable `.exe` (~49 MB, self-contained): no installer, no service, no scheduled background scans, no telemetry, no network traffic until you open **Drivers**.
+One portable `.exe` (~49 MB, self-contained): no installer, no service, no telemetry. The only background network request is the app's own update check against GitHub Releases — 2 minutes after start, then every 6 hours. HONOR's driver catalogs are queried only while **Drivers** is open.
 
 ![Honor PC Helper tray menu on a HONOR MagicBook: charge limit, keyboard backlight, performance mode and touchpad settings](Assets/Screenshot-en.png)
 
-## What the tray menu does
+## Tray menu
 
 | Menu item | Options | Effect |
 | --- | --- | --- |
-| **Charge limit** | Disabled (0–100%), Home 40–70%, Office 70–90%, Travel 95–100% | Writes both thresholds into the EC. They survive reboot and stay in effect even if the app is not running |
-| **Keyboard → Backlight** | Off, Weak, Strong | Sets the backlight level. Fn-key changes made on the keyboard are picked up and shown in the menu |
+| **Charge limit** | Disabled (0–100%), Home 40–70%, Office 70–90%, Travel 95–100% | Writes both thresholds into the EC. They survive reboot and stay in effect while the app is not running |
+| **Keyboard → Backlight** | Off, Weak, Strong | Sets the backlight level. Changes made from the keyboard are reflected in the menu |
 | **Keyboard → Timeout** | Never, 15 s, 30 s, 1 min (default), 5 min | Idle timeout after which the firmware turns the backlight off |
 | **Keyboard → Schedule** | On/off, turn-on hour, turn-off hour, level | Turns the backlight on and off at whole hours. Changing the level by hand suspends the schedule until the next boundary |
 | **Touchpad → Vibration strength** | Low, Medium, High | Haptic feedback of the force pad. Shown only on models that have one |
 | **Touchpad → Edge gestures** | Brightness (left edge), Volume (right edge) | Enables or disables the vertical one-finger edge swipes |
-| **Performance mode** | On/off checkbox | Same switch as **Fn+P**. Requires AC power and at least 20% charge; turned off automatically on sleep and when the charger is unplugged. The tray icon is filled while it is on |
+| **Performance mode** | On/off checkbox | Same switch as **Fn+P**. Requires AC power and at least 20% charge; turned off on sleep and when the charger is unplugged. The tray icon is filled while it is on |
+| **Update to …** | — | Appears while a newer release exists. Downloads and installs it; the app restarts |
 | **Drivers** | — | Opens the driver and BIOS window, see [Drivers](#drivers) |
 | **Start with Windows** | On/off checkbox | Adds or removes an `HKCU\…\Run` entry |
 
@@ -30,15 +31,13 @@ Hovering the tray icon shows the live state: mode, backlight level, charge range
 
 ## Function keys
 
-The keyboard does not act on its own: **F7** only raises a BIOS event, and the vendor software used to do the rest. Honor PC Helper handles it, so the key works without HONOR PC Manager installed.
+**F7** mutes and unmutes the default recording device — the same mute Windows sound settings show — and sets the LED in the key to match. The LED follows a mute made anywhere else, such as from the volume mixer, and is restored at startup and after wake.
 
-**F7** mutes and unmutes the default recording device — the same mute that Windows sound settings show — and sets the LED in the key to match. The LED also follows a mute made anywhere else, such as from the volume mixer, and is restored after wake and at startup.
+**F8** turns the camera off and on and raises a system notification with the new state. The device stays connected and the switch works mid-call: apps receive a black frame. The state survives a reboot. The first press may ask for administrator rights once.
 
-The LED is driven by a BIOS command (`04 0B`), not by the firmware itself — the same command mainline Linux uses as `MICMUTE_LED_SET`. That is why the light stays stuck where the vendor software left it once that software is removed: the key never controlled it.
+**Fn+P** switches performance mode — the same switch as the tray menu item.
 
-**Fn+P** (performance mode) is handled as well; it is listed in the tray menu table above.
-
-Backlight level, haptics and edge gestures are reapplied after resume (including modern standby, where the display-on event is used instead of the unreliable resume event) and after the touchpad reconnects — the firmware forgets all three. The charge limit is checked after resume as well: on some models the EC drops the thresholds when the lid is closed and opened again, and the app puts the chosen range back.
+Backlight level, haptics and edge gestures are reapplied after resume (including modern standby) and after the touchpad reconnects. The charge limit is checked after resume as well, and the chosen range is written back when the EC has dropped it.
 
 Interface language follows the Windows display language: English, Russian, Simplified Chinese.
 
@@ -49,7 +48,7 @@ Interface language follows the Windows display language: English, Russian, Simpl
 - No .NET runtime: the release build is self-contained
 - HONOR PC Manager does **not** have to be installed or running
 
-Developed and verified on a HONOR MagicBook Pro 14 2026 (`ZQC-P`, BIOS 1.10, Windows 11 26200). Other models use the same interface, but the available features depend on the machine and the BIOS: touchpad haptics and edge gestures exist only on force-pad models, some machines expose fewer sensors. Anything the firmware does not answer is hidden from the menu.
+Developed and verified on a HONOR MagicBook Pro 14 2026 (`ZQC-P`, BIOS 1.10, Windows 11 26200). The available features depend on the machine and the BIOS: touchpad haptics and edge gestures exist only on force-pad models, some machines expose fewer sensors. Anything the firmware does not answer is hidden from the menu.
 
 ## Install and run
 
@@ -57,28 +56,30 @@ Developed and verified on a HONOR MagicBook Pro 14 2026 (`ZQC-P`, BIOS 1.10, Win
 2. Run it — no installation, no dependencies. The icon appears in the system tray.
 3. Left-click or right-click the icon to open the menu.
 
-### When it asks for administrator rights
+### Administrator rights
 
 Hardware commands go through a Task Scheduler task named **Honor PC Helper Privileged Hardware**, which runs this same exe as the current user with the highest privileges and applies one pending command. The task is created the first time you change a hardware setting — that is the one and only UAC prompt. From then on every change, including sensor reads, goes through the task without elevation.
 
-The left-edge brightness gesture additionally needs a one-time permission on the ACPI-WMI data block `abbc0f5b-8ea1-11d1-a000-c90629100000` (`HKLM\SYSTEM\CurrentControlSet\Control\WMI\Security`), which by default only administrators may call. The privileged task grants it to your account on first use; until then brightness falls back to `WmiSetBrightness`, which changes brightness in 3% steps but shows no Windows OSD.
+The left-edge brightness gesture additionally needs a one-time permission on the ACPI-WMI data block `abbc0f5b-8ea1-11d1-a000-c90629100000` (`HKLM\SYSTEM\CurrentControlSet\Control\WMI\Security`). The privileged task grants it to your account on first use; until then brightness falls back to `WmiSetBrightness`, which changes brightness in 3% steps without the Windows OSD.
 
 ## Drivers
 
 **Drivers** in the tray menu opens a window with the BIOS version and the driver and software list. The device inventory is built at startup in the background, so the list is already populated when you open it.
 
 - The machine is matched against HONOR's catalogs by BIOS `DeviceTypeEx`/`CVersion`, board and product identifiers, CPU model and memory size.
-- Packages come from HONOR's update platform (`update.platform.hihonorcloud.com`) and, as a fallback, from the official support catalogs (`selfservice-ap/eu/cn.honor.com`). Links that answer 404/410 are dropped, so dead entries do not appear as updates.
-- Green means the installed version matches the offered one, red means an update, grey means the local version could not be determined. A version is called an update only when both numbers are actually comparable — a build date is never compared against a driver version.
+- Packages come from HONOR's update platform (`update.platform.hihonorcloud.com`) and, as a fallback, from the official support catalogs (`selfservice-ap/eu/cn.honor.com`). Links that answer 404/410 are dropped.
+- Green means the installed version matches the offered one, red means an update, grey means the local version could not be determined. A version counts as an update only when both numbers are comparable.
 - Clicking a version downloads the package, verifies it and asks where to save it: SHA-256 when the server publishes one, Authenticode signature on every `.exe`, and an Honor/Huawei publisher when the file did not come from an official HONOR host. Archives are unpacked with path-traversal protection.
 - **The installer is never started for you.** You get a verified file and decide whether to run it.
-- **Driver export and import.** The buttons in the list header save every third-party driver in the system to a single zip (`pnputil /export-driver`) and put them back from such an archive or from a single `.inf` (`pnputil /add-driver … /subdirs /install`). Both run in a child process elevated once per operation through UAC; after an import the list is rebuilt, and a required restart is reported separately. The archive is what you want before reinstalling Windows: it does not depend on HONOR's catalog still serving packages for the model.
+- **Driver export and import.** The buttons in the list header save every third-party driver in the system to a single zip (`pnputil /export-driver`) and put them back from such an archive or from a single `.inf` (`pnputil /add-driver … /subdirs /install`). Both run in a child process elevated once per operation through UAC; after an import the list is rebuilt, and a required restart is reported separately.
 
 The same window shows the Honor PC Helper version and offers the update when a newer release exists.
 
 ## Updating the app
 
-The app checks GitHub Releases when the Drivers window is open. An update is downloaded, then checked against the release asset size, the `sha256` digest published by GitHub, the PE header and the version resource. The running exe is renamed aside, the new build takes its place and starts as the ordinary user process — no administrator prompt, unless the exe lives in a write-protected folder such as `Program Files`. If anything fails, the previous build is put back. Leftovers are removed at the next start.
+The app checks GitHub Releases in the background — 2 minutes after start, then every 6 hours — and whenever the Drivers window is open. While a newer version is available, a red dot sits in the top-right corner of the tray icon and an **Update to …** item appears in the menu; it opens the Drivers window and starts the install.
+
+The update is downloaded, then checked against the release asset size, the `sha256` digest published by GitHub, the PE header and the version resource. The running exe is renamed aside, the new build takes its place and starts as the ordinary user process — no administrator prompt, unless the exe lives in a write-protected folder such as `Program Files`. If anything fails, the previous build is put back. Leftovers are removed at the next start.
 
 ## Where it keeps things
 
@@ -86,6 +87,7 @@ The app checks GitHub Releases when the Drivers window is open. An update is dow
 | --- | --- |
 | Settings and cached state | `HKCU\Software\HonorPCHelper` |
 | Autostart entry | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` → `HonorPCHelper` |
+| Camera state | `HKLM\SOFTWARE\HONOR\ASvidDMFT\Settings\CameraStatus` |
 | Log (1 MB, rotated to `.1`) | `%LocalAppData%\HonorPCHelper\HonorPCHelper.log` |
 | Downloads (removed at next start) | `%LocalAppData%\HonorPCHelper\DriverUpdates`, `…\AppUpdates` |
 | Privileged task | Task Scheduler → `Honor PC Helper Privileged Hardware` |
@@ -94,7 +96,7 @@ Charge thresholds and the backlight timeout are stored by the firmware itself, n
 
 ## Command line
 
-Without arguments the app runs as a tray icon. The rest is used internally, but is documented because it is also usable by hand:
+Without arguments the app runs as a tray icon.
 
 | Argument | Purpose |
 | --- | --- |
@@ -102,7 +104,8 @@ Without arguments the app runs as a tray icon. The rest is used internally, but 
 | `--set-keyboard-backlight <Off\|Low\|High>` | Same, for the backlight level |
 | `--set-keyboard-backlight-timeout <seconds>` | Same, for the idle timeout (0 = never) |
 | `--set-power-unlock <true\|false>` | Same, for performance mode |
-| `--apply-…` | The same four settings, applied silently by the privileged task |
+| `--set-camera-off <true\|false>` | Same, for the camera switch |
+| `--apply-…` | The same settings, applied silently by the privileged task |
 | `--install-privileged-tasks` | Creates the privileged task without changing anything |
 | `--uninstall-privileged-tasks` | Removes it (run from an elevated prompt) |
 | `--export-drivers <archive.zip>` | Exports the driver store into an archive (requires administrator rights) |
@@ -113,17 +116,19 @@ Exit codes: `0` success, `1` failure, `2` the argument value was not understood.
 
 ## Troubleshooting
 
-**Some menu items are missing.** Those features are not exposed by your BIOS or your touchpad. Fan and temperature readings, haptics and edge gestures differ between MagicBook models and firmware versions.
+**Some menu items are missing.** Those features are not exposed by your BIOS or your touchpad.
 
 **A setting does not apply.** Look at `%LocalAppData%\HonorPCHelper\HonorPCHelper.log`; every rejected BIOS command is logged with its error code. If the privileged task was deleted or the exe was moved, the next change re-registers it with one UAC prompt.
 
 **Fn+P is not reflected in the menu.** The app listens to `OemWMIEvent`; if the WMI event subscription could not start, the reason is in the log.
 
-**F7 does nothing.** It rides on the same `OemWMIEvent` subscription as Fn+P, so check the log for that first. The event code differs between models — `0x287` was read from a MagicBook Pro 14. If yours sends something else, the key stays silent; open an issue with the code your machine reports.
+**F7 or F8 does nothing.** They ride on the same `OemWMIEvent` subscription as Fn+P, so check the log for that first. The event codes are `0x287` (microphone) and `0x288` (camera) on a MagicBook Pro 14; if yours sends something else, open an issue with the codes your machine reports.
+
+**F8 shows the notification but the camera keeps filming.** The model ships a camera without the Device MFT that reads `CameraStatus`. Open an issue with the laptop model and the camera's device ID from Device Manager.
 
 **The brightness edge swipe changes brightness but shows no OSD.** The ACPI-WMI permission has not been granted yet — change any hardware setting once so the privileged task exists, then swipe again.
 
-**The driver check reports nothing.** Some VPN and proxy clients leave a dead WinINET proxy behind; the app ignores the system proxy for that reason, but a firewall can still block `hihonorcloud.com` and `honor.com`.
+**The driver check reports nothing.** The app ignores the system proxy, but a firewall can still block `hihonorcloud.com` and `honor.com`.
 
 ## Uninstall
 
@@ -133,16 +138,6 @@ Exit codes: `0` success, `1` failure, `2` the argument value was not understood.
 
 Set the charge limit to **Disabled** before removing the app if you want the battery to charge to 100% again — the thresholds live in the EC and stay there.
 
-## FAQ
-
-**Is there a lightweight alternative to HONOR PC Manager?** This project. It covers the hardware settings and driver updates from a single portable exe, with no installer, no background services and no vendor account. It does not do phone multi-screen collaboration (MagicRing).
-
-**Can I uninstall HONOR PC Manager and use this instead?** Yes, unless you need MagicRing. Values written by PC Manager (charge thresholds, backlight timeout) live in the BIOS and remain in effect; Honor PC Helper reads them back through the same interface.
-
-**How do I limit battery charging without PC Manager?** Tray menu → **Charge limit** → pick a range. The thresholds are written through the HONOR BIOS WMI interface and survive a reboot.
-
-**Does it need administrator rights?** Once, to create the scheduled task that applies hardware commands. Day-to-day use runs unelevated, updates included.
-
 ## Build from source
 
 Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0):
@@ -151,7 +146,7 @@ Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0):
 .\build.ps1
 ```
 
-The result is a single self-contained, compressed `dist\HonorPCHelper.exe`. `Assets\`, `.github\workflows\build.yml` (CI build and release on a `v*` tag) and `RELEASE_NOTES.md` (the release body) are part of the same tree.
+The result is a single self-contained, compressed `dist\HonorPCHelper.exe`.
 
 ---
 

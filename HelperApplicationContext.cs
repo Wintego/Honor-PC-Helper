@@ -6,6 +6,9 @@ internal sealed class HelperApplicationContext : ApplicationContext
     // Мышь над иконкой трея генерирует поток событий, а сборка подсказки читает
     // реестр и WMI - поэтому обновление ограничено по частоте.
     private const int TooltipMinIntervalMilliseconds = 750;
+    // Оболочка сама решает, сколько держать уведомление; значение лишь
+    // подсказывает, что сообщение короткое и задерживать его незачем.
+    private const int NotificationTimeoutMilliseconds = 3_000;
 
     private readonly MessageWindow _window;
     private readonly Control _uiDispatcher;
@@ -17,6 +20,8 @@ internal sealed class HelperApplicationContext : ApplicationContext
     private readonly BacklightScheduleService _backlightSchedule;
     private readonly BatteryProtectionService _batteryProtection;
     private readonly MicMuteService _micMute;
+    private readonly CameraMuteService _cameraMute;
+    private readonly ApplicationUpdateWatcher _applicationUpdates;
     private Icon _trayIcon;
     private IntPtr _tooltipText;
     private bool _tooltipAdded;
@@ -58,11 +63,16 @@ internal sealed class HelperApplicationContext : ApplicationContext
         _backlightSchedule = new BacklightScheduleService();
         _batteryProtection = new BatteryProtectionService();
         _micMute = new MicMuteService();
+        _cameraMute = new CameraMuteService();
+        _applicationUpdates = new ApplicationUpdateWatcher();
+        ApplicationUpdateWatcher.Changed += OnApplicationUpdateChanged;
         // Выбор, сделанный до появления отдельного значения в реестре,
         // переносится до первого опроса датчиков - иначе пороги, потерянные
         // прошивкой, успеют его перезаписать.
         HardwareSettings.SeedPreferredBatteryProtection();
-        _trayIcon = TrayIconFactory.Create(HardwareSettings.PerformanceModeActive);
+        _trayIcon = TrayIconFactory.Create(
+            HardwareSettings.PerformanceModeActive,
+            ApplicationUpdateWatcher.Available is not null);
         // Подсказка обращается к WMI, поэтому при старте показывается название
         // приложения, а настоящий текст подставляется первым же обновлением:
         // значок в трее не должен ждать опроса датчиков.
@@ -129,6 +139,7 @@ internal sealed class HelperApplicationContext : ApplicationContext
                 HandlePowerModeChanged,
                 HandleKeyboardBacklightChanged,
                 HandleMicMuteKey,
+                HandleCameraKey,
                 ShouldIgnoreBacklightEvent);
             events.Start();
             _powerModeEvents = events;
@@ -148,6 +159,13 @@ internal sealed class HelperApplicationContext : ApplicationContext
                 $"无法监听 Fn+P：{exception.Message}"));
         }
 
+        _applicationUpdates.Start();
+
+        // Право записи выключателя камеры выдаётся заранее и в стороне от
+        // остального запуска: секунда на привилегированную задачу иначе
+        // доставалась первому нажатию F8.
+        _ = Task.Run(_cameraMute.Prepare);
+
         _ = RefreshSensorsAsync();
     }
 
@@ -161,6 +179,8 @@ internal sealed class HelperApplicationContext : ApplicationContext
             _backlightSchedule.Dispose();
             _batteryProtection.Dispose();
             _micMute.Dispose();
+            ApplicationUpdateWatcher.Changed -= OnApplicationUpdateChanged;
+            _applicationUpdates.Dispose();
             HideNativeTooltip();
             if (_tooltipHandle != IntPtr.Zero)
                 NativeMethods.DestroyWindow(_tooltipHandle);
@@ -216,9 +236,21 @@ internal sealed class HelperApplicationContext : ApplicationContext
 
         PowerUnlockMenu.Build(menu, UpdateTrayIcon);
 
+        if (ApplicationUpdateWatcher.Available is { } applicationUpdate)
+        {
+            var version = applicationUpdate.Version.ToString(3);
+            menu.AddItem(
+                L.T($"Обновить до {version}", $"Update to {version}", $"更新到 {version}"),
+                () => InstallApplicationUpdate(applicationUpdate),
+                tooltip: L.T(
+                    $"Скачать и установить Honor PC Helper {version}. Приложение перезапустится.",
+                    $"Download and install Honor PC Helper {version}. The app will restart.",
+                    $"下载并安装 Honor PC Helper {version}。应用程序将重新启动。"));
+        }
+
         menu.AddItem(
             L.T("Драйвера", "Drivers", "驱动程序"),
-            ShowDriverManager,
+            () => ShowDriverManager(),
             tooltip: L.T(
                 "Проверка и установка драйверов и прошивок с сервера HONOR.",
                 "Check and install drivers and firmware from HONOR.",
@@ -233,7 +265,7 @@ internal sealed class HelperApplicationContext : ApplicationContext
         return menu;
     }
 
-    private void ShowDriverManager()
+    private DriverManagerForm ShowDriverManager()
     {
         var form = Application.OpenForms.OfType<DriverManagerForm>().FirstOrDefault();
         if (form is null || form.IsDisposed)
@@ -248,6 +280,29 @@ internal sealed class HelperApplicationContext : ApplicationContext
             form.WindowState = FormWindowState.Normal;
             form.Activate();
             form.BringToFront();
+        }
+        return form;
+    }
+
+    /// <summary>
+    /// Обновление из трея идёт через окно драйверов: там уже есть и строка
+    /// приложения, и полоса загрузки, поэтому пункт меню открывает окно и
+    /// сразу запускает установку.
+    /// </summary>
+    private void InstallApplicationUpdate(ApplicationUpdate update)
+        => ShowDriverManager().RequestApplicationUpdate(update);
+
+    private void OnApplicationUpdateChanged()
+    {
+        if (_disposed || _uiDispatcher.IsDisposed)
+            return;
+
+        try
+        {
+            _uiDispatcher.BeginInvoke(UpdateTrayIcon);
+        }
+        catch (InvalidOperationException)
+        {
         }
     }
 
@@ -379,7 +434,89 @@ internal sealed class HelperApplicationContext : ApplicationContext
         if (_disposed)
             return;
 
-        _ = Task.Run(_micMute.Toggle);
+        _ = Task.Run(() =>
+        {
+            if (_micMute.Toggle() is { } muted)
+                ShowMicrophoneNotification(muted);
+        });
+    }
+
+    /// <summary>
+    /// Лампочка на клавише видна только за клавиатурой, а сам звук пропадает
+    /// молча, - поэтому о переключении, как и у камеры, сообщает уведомление
+    /// оболочки.
+    /// </summary>
+    private void ShowMicrophoneNotification(bool muted)
+    {
+        ShowNotification(
+            muted
+                ? L.T("Микрофон выключен", "Microphone is off", "麦克风已关闭")
+                : L.T("Микрофон включён", "Microphone is on", "麦克风已开启"),
+            muted
+                ? L.T("Приложения не слышат звук.",
+                    "Apps receive no sound.",
+                    "应用程序听不到声音。")
+                : L.T("Звук снова доступен приложениям.",
+                    "Sound is available to apps again.",
+                    "应用程序可以再次获取声音。"));
+    }
+
+    // Клавиша F8. Запись в реестр и, при первом нажатии, запуск привилегированной
+    // задачи - поток события WMI на это занимать нельзя.
+    private void HandleCameraKey()
+    {
+        if (_disposed)
+            return;
+
+        _ = Task.Run(() =>
+        {
+            if (_cameraMute.Toggle() is { } off)
+                ShowCameraNotification(off);
+        });
+    }
+
+    /// <summary>
+    /// Состояние камеры нигде не видно - ни лампочки на клавише, ни индикатора
+    /// в системе, - поэтому о переключении сообщает уведомление оболочки.
+    /// </summary>
+    private void ShowCameraNotification(bool off)
+    {
+        ShowNotification(
+            off
+                ? L.T("Камера выключена", "Camera is off", "摄像头已关闭")
+                : L.T("Камера включена", "Camera is on", "摄像头已开启"),
+            off
+                ? L.T("Приложения получают чёрный кадр.",
+                    "Apps receive a black frame.",
+                    "应用程序只会收到黑屏画面。")
+                : L.T("Изображение снова доступно приложениям.",
+                    "Video is available to apps again.",
+                    "应用程序可以再次获取画面。"));
+    }
+
+    // Уведомление показывает значок в трее, а он живёт в потоке интерфейса.
+    private void ShowNotification(string title, string text)
+    {
+        if (_disposed || _uiDispatcher.IsDisposed)
+            return;
+
+        try
+        {
+            _uiDispatcher.BeginInvoke(() =>
+            {
+                if (_disposed)
+                    return;
+
+                _notifyIcon.ShowBalloonTip(
+                    NotificationTimeoutMilliseconds,
+                    title,
+                    text,
+                    ToolTipIcon.Info);
+            });
+        }
+        catch (InvalidOperationException)
+        {
+        }
     }
 
     private void OnTrayIconMouseMove(object? sender, MouseEventArgs eventArgs)
@@ -554,7 +691,9 @@ internal sealed class HelperApplicationContext : ApplicationContext
 
     private void UpdateTrayIcon()
     {
-        var icon = TrayIconFactory.Create(HardwareSettings.PerformanceModeActive);
+        var icon = TrayIconFactory.Create(
+            HardwareSettings.PerformanceModeActive,
+            ApplicationUpdateWatcher.Available is not null);
         if (ReferenceEquals(icon, _trayIcon))
             return;
 

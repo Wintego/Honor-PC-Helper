@@ -41,22 +41,26 @@ internal sealed class MicMuteService : IDisposable
         }
     }
 
-    /// <summary>Переключает микрофон и индикатор. Вызывается из обработчика события WMI.</summary>
-    internal void Toggle()
+    /// <summary>
+    /// Переключает микрофон и индикатор и возвращает новое состояние:
+    /// true - выключен. null - переключить не удалось, причина уже в журнале.
+    /// Вызывается из обработчика события WMI.
+    /// </summary>
+    internal bool? Toggle()
     {
         lock (_gate)
         {
             if (_disposed)
-                return;
+                return null;
 
             var volume = Resolve();
             if (volume is null)
-                return;
+                return null;
 
             if (volume.GetMute(out var muted) != 0)
             {
                 Release();
-                return;
+                return null;
             }
 
             var target = !muted;
@@ -65,11 +69,12 @@ internal sealed class MicMuteService : IDisposable
                 // Конечная точка могла исчезнуть вместе с устройством - следующий
                 // вызов найдёт её заново.
                 Release();
-                return;
+                return null;
             }
 
             MicMuteLedController.TrySet(target);
             AppLog.Info($"Microphone {(target ? "muted" : "unmuted")} by Fn key");
+            return target;
         }
     }
 
