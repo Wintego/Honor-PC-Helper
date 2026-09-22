@@ -148,6 +148,18 @@
 
 产物是单个自包含并经过压缩的 `dist\HonorPCHelper.exe`。
 
+## 捐赠（支持项目）
+
+Honor PC Helper 免费、开源，没有广告与遥测。如果它让你不必再安装 HONOR PC Manager，欢迎支持后续开发——金额随意，完全自愿。
+
+| 方式 | 地址 |
+| --- | --- |
+| **BTC** | `bc1qeek2nwwhpd4faw2cla6nzzhjes28p9pdkd52lh` |
+| **ETH** | `0x3090134F22f62924843991c86f73cf53525B4432` |
+| **GRAM** | `UQAIAv3WrIrgtY2ZmJHx7JWXqH_BTRlhY18slpF1Sh7iPvAV` |
+| **USDT (TRC20)** | `TAWc6Yzs52ezkMD43PsKzFLgYpswnRBPwP` |
+| **TBank** | https://www.tbank.ru/cf/3hp5vsr5mJ3 |
+
 ---
 
 本项目与荣耀（HONOR）无关，未获其认可或支持。HONOR 与 MagicBook 为各自所有者的商标。

@@ -148,6 +148,18 @@
 
 Результат — один самодостаточный сжатый файл `dist\HonorPCHelper.exe`.
 
+## Донаты (поддержка проекта)
+
+Honor PC Helper бесплатен, с открытым исходным кодом, без рекламы и телеметрии. Если программа вам пригодилась, вы можете поддержать её развитие — любая сумма помогает, но это добровольно.
+
+| Способ | Реквизиты |
+| --- | --- |
+| **BTC** | `bc1qeek2nwwhpd4faw2cla6nzzhjes28p9pdkd52lh` |
+| **ETH** | `0x3090134F22f62924843991c86f73cf53525B4432` |
+| **GRAM** | `UQAIAv3WrIrgtY2ZmJHx7JWXqH_BTRlhY18slpF1Sh7iPvAV` |
+| **USDT (TRC20)** | `TAWc6Yzs52ezkMD43PsKzFLgYpswnRBPwP` |
+| **TBank** | https://www.tbank.ru/cf/3hp5vsr5mJ3 |
+
 ---
 
 Проект не связан с HONOR и не поддерживается компанией. HONOR и MagicBook — товарные знаки соответствующих владельцев.

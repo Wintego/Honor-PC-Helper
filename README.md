@@ -148,6 +148,18 @@ Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0):
 
 The result is a single self-contained, compressed `dist\HonorPCHelper.exe`.
 
+## Donate
+
+Honor PC Helper is free, open source, and carries no ads or telemetry. If it saved you from installing HONOR PC Manager, you can support further development — any amount helps, and there is no obligation.
+
+| Method | Address |
+| --- | --- |
+| **BTC** | `bc1qeek2nwwhpd4faw2cla6nzzhjes28p9pdkd52lh` |
+| **ETH** | `0x3090134F22f62924843991c86f73cf53525B4432` |
+| **GRAM** | `UQAIAv3WrIrgtY2ZmJHx7JWXqH_BTRlhY18slpF1Sh7iPvAV` |
+| **USDT (TRC20)** | `TAWc6Yzs52ezkMD43PsKzFLgYpswnRBPwP` |
+| **TBank** | https://www.tbank.ru/cf/3hp5vsr5mJ3 |
+
 ---
 
 Not affiliated with, endorsed by or supported by HONOR. HONOR and MagicBook are trademarks of their respective owners.
