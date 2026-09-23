@@ -158,7 +158,6 @@ Honor PC Helper бесплатен, с открытым исходным код�
 | **ETH** | `0x3090134F22f62924843991c86f73cf53525B4432` |
 | **GRAM** | `UQAIAv3WrIrgtY2ZmJHx7JWXqH_BTRlhY18slpF1Sh7iPvAV` |
 | **USDT (TRC20)** | `TAWc6Yzs52ezkMD43PsKzFLgYpswnRBPwP` |
-| **TBank** | https://www.tbank.ru/cf/3hp5vsr5mJ3 |
 
 ---
 
