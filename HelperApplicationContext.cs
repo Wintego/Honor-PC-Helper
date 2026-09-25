@@ -41,7 +41,12 @@ internal sealed class HelperApplicationContext : ApplicationContext
     private long _lastTooltipUpdate;
     private const int ResumeSettleMilliseconds = 8000;
     private const int ResumeDebounceMilliseconds = 10000;
-    private readonly Task<IReadOnlyList<DriverComponent>> _driverComponentsTask;
+    // Перечень драйверов (Win32_PnPSignedDriver) - самый тяжёлый запрос WMI
+    // приложения. Сразу после входа в систему он соперничал бы с автозагрузкой,
+    // поэтому собирается с задержкой - или сразу, если окно драйверов
+    // открыли раньше.
+    private static readonly TimeSpan DriverInventoryDelay = TimeSpan.FromMinutes(1);
+    private readonly Lazy<Task<IReadOnlyList<DriverComponent>>> _driverComponents = new(StartDriverInventory);
 
     internal HelperApplicationContext()
     {
@@ -102,13 +107,21 @@ internal sealed class HelperApplicationContext : ApplicationContext
             _window.Handle, NativeMethods.GuidConsoleDisplayState, NativeMethods.DeviceNotifyWindowHandle);
 
         _backlightSchedule.Start();
-        _driverComponentsTask = new DriverUpdateService().BuildDeviceListAsync();
-        _ = _driverComponentsTask.ContinueWith(
-            task => AppLog.Error("Background driver device inventory failed", task.Exception!),
+        _ = Task.Delay(DriverInventoryDelay).ContinueWith(
+            _ => _disposed ? null : _driverComponents.Value,
+            TaskScheduler.Default);
+        _ = Task.Run(StartHardwareServices);
+    }
+
+    private static Task<IReadOnlyList<DriverComponent>> StartDriverInventory()
+    {
+        var task = new DriverUpdateService().BuildDeviceListAsync();
+        _ = task.ContinueWith(
+            completed => AppLog.Error("Background driver device inventory failed", completed.Exception!),
             CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted,
             TaskScheduler.Default);
-        _ = Task.Run(StartHardwareServices);
+        return task;
     }
 
     /// <summary>
@@ -270,7 +283,7 @@ internal sealed class HelperApplicationContext : ApplicationContext
         var form = Application.OpenForms.OfType<DriverManagerForm>().FirstOrDefault();
         if (form is null || form.IsDisposed)
         {
-            form = new DriverManagerForm(_driverComponentsTask);
+            form = new DriverManagerForm(_driverComponents.Value);
             form.Show();
             form.Activate();
             form.BringToFront();
@@ -337,7 +350,9 @@ internal sealed class HelperApplicationContext : ApplicationContext
 
         if (enabled && !PerformanceModePolicy.CanEnable(out var reason))
         {
-            await DisablePerformanceModeAsync();
+            // Режим включил сам человек клавишами Fn+P, поэтому один запрос UAC
+            // здесь допустим - но не после того, как он уже отказал.
+            await DisablePerformanceModeAsync(Elevation.UnlessDeclined);
             ShowError(reason);
             return;
         }
@@ -703,9 +718,11 @@ internal sealed class HelperApplicationContext : ApplicationContext
 
     private async void OnSystemPowerModeChanged(object sender, Microsoft.Win32.PowerModeChangedEventArgs eventArgs)
     {
+        // Уход в сон и отключение зарядки человек с приложением не связывает:
+        // окно UAC здесь недопустимо, режим снимается только через фоновую задачу.
         if (eventArgs.Mode == Microsoft.Win32.PowerModes.Suspend)
         {
-            await DisablePerformanceModeAsync();
+            await DisablePerformanceModeAsync(Elevation.Never);
             return;
         }
 
@@ -713,7 +730,7 @@ internal sealed class HelperApplicationContext : ApplicationContext
             && HardwareSettings.PerformanceModeActive
             && !PerformanceModePolicy.CanEnable(out _))
         {
-            await DisablePerformanceModeAsync();
+            await DisablePerformanceModeAsync(Elevation.Never);
             return;
         }
 
@@ -729,13 +746,25 @@ internal sealed class HelperApplicationContext : ApplicationContext
         }
     }
 
-    private async Task DisablePerformanceModeAsync()
+    /// <summary>
+    /// Вызывается из async void обработчиков, поэтому ошибки не выпускает:
+    /// исключение оттуда завершило бы процесс.
+    /// </summary>
+    private async Task DisablePerformanceModeAsync(Elevation elevation)
     {
         if (!HardwareSettings.PerformanceModeActive)
             return;
 
-        if (!await PrivilegedHardware.TryRunPowerUnlockTaskAsync(false))
+        try
+        {
+            if (!await PrivilegedHardware.TryRunPowerUnlockTaskAsync(false, elevation))
+                return;
+        }
+        catch (Exception exception)
+        {
+            AppLog.Error("Could not leave performance mode", exception);
             return;
+        }
         HardwareSettings.PowerUnlock = false;
         HardwareSettings.PerformanceModeActive = false;
         HandlePowerModeChanged(false);

@@ -24,6 +24,10 @@ internal sealed class MicMuteService : IDisposable
     private string? _endpointId;
     private bool _failureLogged;
     private bool _disposed;
+    // Что последним записано в индикатор: -1 - неизвестно, 0 - погашен, 1 - горит.
+    // Уведомление звукового движка приходит и на каждое движение громкости
+    // микрофона, а вызов BIOS нужен только когда меняется сам признак mute.
+    private int _ledState = -1;
 
     /// <summary>Приводит индикатор к текущему состоянию микрофона.</summary>
     internal void Sync()
@@ -37,7 +41,8 @@ internal sealed class MicMuteService : IDisposable
             if (volume is null || volume.GetMute(out var muted) != 0)
                 return;
 
-            MicMuteLedController.TrySet(muted);
+            // Прошивка могла погасить индикатор во сне, поэтому запись обязательна.
+            UpdateLed(muted, force: true);
         }
     }
 
@@ -72,7 +77,7 @@ internal sealed class MicMuteService : IDisposable
                 return null;
             }
 
-            MicMuteLedController.TrySet(target);
+            UpdateLed(target, force: false);
             AppLog.Info($"Microphone {(target ? "muted" : "unmuted")} by Fn key");
             return target;
         }
@@ -180,6 +185,21 @@ internal sealed class MicMuteService : IDisposable
         _endpointId = null;
     }
 
+    /// <summary>
+    /// Приводит индикатор к состоянию микрофона. Без force запись пропускается,
+    /// если индикатор уже в нужном положении: смена mute через клавишу даёт
+    /// ещё и уведомление звукового движка, и лампочка писалась бы дважды.
+    /// </summary>
+    private void UpdateLed(bool muted, bool force)
+    {
+        var state = muted ? 1 : 0;
+        if (Interlocked.Exchange(ref _ledState, state) == state && !force)
+            return;
+
+        if (!MicMuteLedController.TrySet(muted))
+            Interlocked.CompareExchange(ref _ledState, -1, state);
+    }
+
     private void LogFailureOnce(string message)
     {
         if (_failureLogged)
@@ -207,7 +227,8 @@ internal sealed class MicMuteService : IDisposable
                 return 0;
 
             var muted = Marshal.ReadInt32(notificationData, CoreAudio.MutedOffset) != 0;
-            _ = Task.Run(() => MicMuteLedController.TrySet(muted));
+            if (Volatile.Read(ref owner._ledState) != (muted ? 1 : 0))
+                _ = Task.Run(() => owner.UpdateLed(muted, force: false));
             return 0;
         }
     }

@@ -38,8 +38,16 @@ internal sealed class CameraMuteService
 
             // Неудача при запуске не должна лишать первое нажатие собственной
             // попытки: во время загрузки системы планировщик бывает занят.
-            if (!GrantAccessOnce())
+            try
+            {
+                if (!GrantAccessOnce(Elevation.Never))
+                    _accessRequested = false;
+            }
+            catch (Exception exception)
+            {
+                AppLog.Error("Could not prepare camera switch access", exception);
                 _accessRequested = false;
+            }
         }
     }
 
@@ -65,16 +73,25 @@ internal sealed class CameraMuteService
         if (CameraMuteController.TrySetCameraOff(off))
             return true;
 
-        // Права ещё не выданы. Сначала выдаём их: запуск задачи стоит секунд,
-        // и платить эту цену на каждом нажатии незачем - после выдачи значение
-        // пишется прямо отсюда.
-        if (GrantAccessOnce() && CameraMuteController.TrySetCameraOff(off))
-            return true;
+        try
+        {
+            // Права ещё не выданы. Сначала выдаём их: запуск задачи стоит секунд,
+            // и платить эту цену на каждом нажатии незачем - после выдачи значение
+            // пишется прямо отсюда.
+            if (GrantAccessOnce(Elevation.Interactive) && CameraMuteController.TrySetCameraOff(off))
+                return true;
 
-        // Выдать права не удалось - остаётся длинный путь: значение пишет
-        // сама привилегированная задача.
-        if (PrivilegedHardware.TryRunCameraTask(off))
-            return true;
+            // Выдать права не удалось - остаётся длинный путь: значение пишет
+            // сама привилегированная задача.
+            if (PrivilegedHardware.TryRunCameraTask(off))
+                return true;
+        }
+        catch (Exception exception)
+        {
+            // В том числе отказ от запроса UAC - клавиша тогда просто не сработала.
+            AppLog.Error("Could not switch the camera", exception);
+            return false;
+        }
 
         AppLog.Error("Could not switch the camera");
         return false;
@@ -85,13 +102,13 @@ internal sealed class CameraMuteService
     /// пользователю право записи. Повторные попытки не делаются: если задача
     /// недоступна, она недоступна и для следующего нажатия.
     /// </summary>
-    private bool GrantAccessOnce()
+    private bool GrantAccessOnce(Elevation elevation)
     {
         if (_accessRequested)
             return false;
         _accessRequested = true;
 
-        if (!PrivilegedHardware.TryRunGrantCameraAccessTask())
+        if (!PrivilegedHardware.TryRunGrantCameraAccessTask(elevation))
             return false;
 
         AppLog.Info("Camera switch write access granted");

@@ -64,7 +64,7 @@ The left-edge brightness gesture additionally needs a one-time permission on the
 
 ## Drivers
 
-**Drivers** in the tray menu opens a window with the BIOS version and the driver and software list. The device inventory is built at startup in the background, so the list is already populated when you open it.
+**Drivers** in the tray menu opens a window with the BIOS version and the driver and software list. The device inventory is built in the background a minute after startup, out of the way of other startup apps, so the list is usually already populated when you open it.
 
 - The machine is matched against HONOR's catalogs by BIOS `DeviceTypeEx`/`CVersion`, board and product identifiers, CPU model and memory size.
 - Packages come from HONOR's update platform (`update.platform.hihonorcloud.com`) and, as a fallback, from the official support catalogs (`selfservice-ap/eu/cn.honor.com`). Links that answer 404/410 are dropped.

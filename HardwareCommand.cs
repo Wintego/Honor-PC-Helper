@@ -33,6 +33,7 @@ internal static class HardwareCommand
         catch (Win32Exception exception) when (exception.NativeErrorCode == 1223)
         {
             // Пользователь отменил запрос UAC - молча выходим.
+            PrivilegedHardware.NoteElevationDeclined();
         }
         catch (Exception exception)
         {

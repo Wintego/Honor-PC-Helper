@@ -19,6 +19,20 @@ internal sealed class KeyboardBacklightController
 
     internal void SetLevel(KeyboardBacklightLevel level)
     {
+        using var session = new HonorWmiSession();
+        SetLevel(session, level);
+    }
+
+    /// <summary>Уровень и таймаут за одно подключение к BIOS.</summary>
+    internal void SetState(KeyboardBacklightLevel level, ushort timeoutSeconds)
+    {
+        using var session = new HonorWmiSession();
+        SetLevel(session, level);
+        session.Call(SetTimeoutCommand | ((ulong)timeoutSeconds << 16));
+    }
+
+    private static void SetLevel(HonorWmiSession session, KeyboardBacklightLevel level)
+    {
         var mode = level switch
         {
             KeyboardBacklightLevel.Off => ModeOff,
@@ -27,7 +41,6 @@ internal sealed class KeyboardBacklightController
             _ => throw new ArgumentOutOfRangeException(nameof(level))
         };
 
-        using var session = new HonorWmiSession();
         try
         {
             session.Call(SetModeCommand | ((ulong)mode << 16));

@@ -28,6 +28,7 @@ internal static class HardwareSettings
     private const string TouchpadHapticsValue = "TouchpadHapticsLevel";
     private const string TouchpadEdgeGesturePrefix = "TouchpadEdgeGesture.";
     private const string PendingHardwareCommandValue = "PendingHardwareCommand";
+    private const string HardwareCommandResultValue = "HardwareCommandResult";
     private const string SensorSnapshotValue = "SensorSnapshot";
 
     // Обращения идут из UI-потока, фоновых задач и обработчика событий WMI,
@@ -68,6 +69,13 @@ internal static class HardwareSettings
     {
         get => ReadString(PendingHardwareCommandValue);
         set => WriteString(PendingHardwareCommandValue, value);
+    }
+
+    /// <summary>Итог последней команды привилегированного экземпляра: номер запроса и код.</summary>
+    internal static string? HardwareCommandResult
+    {
+        get => ReadString(HardwareCommandResultValue);
+        set => WriteString(HardwareCommandResultValue, value);
     }
 
     internal static bool BacklightScheduleEnabled

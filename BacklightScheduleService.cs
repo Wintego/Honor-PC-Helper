@@ -25,6 +25,9 @@ internal sealed class BacklightScheduleService : IDisposable
 
         // The firmware may reset the backlight a few times while the machine
         // finishes waking, so re-apply the target level several times.
+        // Level and timeout travel as one privileged command: every separate
+        // command would start one more privileged instance of the app.
+        var restored = false;
         for (var attempt = 0; attempt < 3 && !_disposed; attempt++)
         {
             await Task.Delay(2000);
@@ -33,9 +36,8 @@ internal sealed class BacklightScheduleService : IDisposable
 
             try
             {
-                await PrivilegedHardware.TryRunBacklightTaskAsync(level);
-                await PrivilegedHardware.TryRunBacklightTimeoutTaskAsync(
-                    HardwareSettings.KeyboardBacklightTimeout);
+                restored |= await PrivilegedHardware.TryRunBacklightStateTaskSilentlyAsync(
+                    level, HardwareSettings.KeyboardBacklightTimeout);
             }
             catch (Exception exception)
             {
@@ -43,7 +45,8 @@ internal sealed class BacklightScheduleService : IDisposable
             }
         }
 
-        HardwareSettings.KeyboardBacklight = level;
+        if (restored)
+            HardwareSettings.KeyboardBacklight = level;
         _manualOverrideUntil = null;
         await ApplyIfNeededAsync(force: true);
     }
@@ -58,10 +61,11 @@ internal sealed class BacklightScheduleService : IDisposable
         return HardwareSettings.KeyboardBacklight ?? KeyboardBacklightLevel.Off;
     }
 
+    /// <summary>Настройки расписания изменены из меню - запрос UAC здесь уместен.</summary>
     internal async Task SettingsChangedAsync()
     {
         _manualOverrideUntil = null;
-        await ApplyIfNeededAsync(force: true);
+        await ApplyIfNeededAsync(force: true, Elevation.Interactive);
     }
 
     internal void SetManualOverride()
@@ -73,7 +77,12 @@ internal sealed class BacklightScheduleService : IDisposable
         ScheduleNextCheck(DateTime.Now);
     }
 
-    internal async Task ApplyIfNeededAsync(bool force = false)
+    /// <summary>
+    /// Приводит подсветку к расписанию. По таймеру, при запуске и после
+    /// пробуждения это происходит без участия человека, поэтому по умолчанию
+    /// команда идёт только через фоновую задачу, без запроса UAC.
+    /// </summary>
+    internal async Task ApplyIfNeededAsync(bool force = false, Elevation elevation = Elevation.Never)
     {
         if (_disposed || !await _applyLock.WaitAsync(0))
             return;
@@ -101,7 +110,7 @@ internal sealed class BacklightScheduleService : IDisposable
             try
             {
                 if ((force || HardwareSettings.KeyboardBacklight != level)
-                    && await PrivilegedHardware.TryRunBacklightTaskAsync(level))
+                    && await PrivilegedHardware.TryRunBacklightTaskAsync(level, elevation))
                 {
                     HardwareSettings.KeyboardBacklight = level;
                 }

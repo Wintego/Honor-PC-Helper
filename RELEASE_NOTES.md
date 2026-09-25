@@ -1,9 +1,14 @@
-## Honor PC Helper 1.11.0
+## Honor PC Helper 1.11.1
 
-Updates:
+Fixes:
 
-- **A new version now announces itself in the tray.** Until now the app only learned about its own updates while the Drivers window was open, so a release could sit unnoticed for weeks. The app checks GitHub Releases in the background — 2 minutes after start, then every 6 hours — and while a newer version is available it paints a red dot in the top-right corner of the tray icon and adds an **Update to …** item to the menu. The item opens the Drivers window and starts the same download-and-replace that the version link there performs, so the install is the one that was already tested: checksum, PE header and version resource are verified before the running exe is swapped.
+- **The menu no longer reports a setting as applied when the BIOS rejected it.** Hardware settings go through the privileged scheduled task, and the tray treated a command as done as soon as the task picked it up — before it ran. If the firmware refused, say, a charge limit, the check mark still moved to the new mode. The task now reports the outcome back, and a rejected command shows the BIOS error instead of pretending to succeed or asking for administrator rights a second time.
+- **No more repeated UAC prompts.** If you declined the administrator prompt, it came back every time the pointer rested on the tray icon, because the tooltip reads the sensors through the privileged task. Restoring the keyboard backlight after wake and the backlight schedule could also raise the prompt on their own. Background actions — sleep, wake, the schedule timer — now never ask for rights; the sensors and the brightness gesture ask at most until you decline once in a session; menu items ask as before.
+- **The app no longer quits on an error while leaving performance mode.** A declined prompt or a failed command when the laptop went to sleep or was unplugged in performance mode could terminate the process. F8 and the brightness gesture handle the same failures quietly and write them to the log.
 
-Function keys:
+Performance:
 
-- **F8 turns the camera off and on again, with a system notification.** The keyboard only raises a BIOS event (`0x288`); switching the camera was done by HONOR PC Manager, so once it is gone the key does nothing. The app now drives the same value that HONOR PC Manager did — `HKLM\SOFTWARE\HONOR\ASvidDMFT\Settings\CameraStatus`, which the Device MFT inside the camera driver reads while processing each frame. The device stays connected and nothing is disabled: the switch is instant, works mid-call, apps just start receiving a black frame, and the state survives a reboot. The registry key belongs to administrators, so the first press may ask for rights once; after that the app writes the value itself.
+- **Half the work after every wake.** The backlight level and timeout are restored with a single privileged command instead of two, so each screen wake starts three helper processes instead of six.
+- **The mic key light is written only when mute actually changes.** It used to be rewritten on every move of the microphone volume slider, and twice on every F7 press.
+- **The driver inventory waits a minute after start.** Listing signed drivers is the heaviest WMI query in the app and used to compete with the other startup apps at sign-in. It now runs a minute later — or immediately if the Drivers window is opened sooner.
+- WMI objects of the brightness gesture are released right away instead of piling up until garbage collection.

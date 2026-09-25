@@ -84,9 +84,11 @@ internal static class HonorAcpiDirect
         input[1] = command;
         input[2] = value;
 
-        var parameters = _method.GetMethodParameters(MethodName);
+        // Параметры и ответ - COM-объекты WMI: без Dispose они держатся до
+        // сборки мусора, а жест яркости вызывает метод десятки раз подряд.
+        using var parameters = _method.GetMethodParameters(MethodName);
         parameters["u8Input"] = input;
-        _method.InvokeMethod(MethodName, parameters, null);
+        using var result = _method.InvokeMethod(MethodName, parameters, null);
         return true;
     }
 
@@ -116,8 +118,17 @@ internal static class HonorAcpiDirect
 
         _ = Task.Run(() =>
         {
-            if (!PrivilegedHardware.TryRunGrantBrightnessAccessTask())
+            try
+            {
+                if (!PrivilegedHardware.TryRunGrantBrightnessAccessTask())
+                    return;
+            }
+            catch (Exception exception)
+            {
+                // В том числе отказ от запроса UAC: остаётся запасной путь яркости.
+                AppLog.Error("Could not grant Honor ACPI direct access", exception);
                 return;
+            }
             lock (Gate)
             {
                 _accessDenied = false;
