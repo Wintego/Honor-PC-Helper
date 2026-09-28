@@ -27,7 +27,15 @@ internal sealed class HonorWmiSession : IDisposable
 
         using var searcher = new ManagementObjectSearcher(scope, new ObjectQuery("SELECT * FROM OemWMIMethod"));
         using var instances = searcher.Get();
-        return _instance = instances.Cast<ManagementObject>().FirstOrDefault()
+        // The class has one instance per ACPI WMI device (HWMI_0, HWMI_1). Reads used
+        // to take whichever enumeration came back first while the privileged write
+        // path pins HWMI_0, so a sensor read and the command that changes the same
+        // setting could land on different instances. Prefer the same one both ways.
+        var found = instances.Cast<ManagementObject>()
+            .FirstOrDefault(instance => instance["InstanceName"] is string name &&
+                name.Contains("HWMI_0", StringComparison.Ordinal))
+            ?? instances.Cast<ManagementObject>().FirstOrDefault();
+        return _instance = found
             ?? throw new InvalidOperationException(L.T(
                 "Интерфейс HONOR BIOS WMI не найден.",
                 "HONOR BIOS WMI interface was not found.",

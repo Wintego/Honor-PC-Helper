@@ -8,26 +8,30 @@ internal readonly record struct HardwareSensorSnapshot(
     int? BatteryTemperature,
     int? KeyboardBacklightMode,
     int? ChargeStart,
-    int? ChargeEnd)
+    int? ChargeEnd,
+    int? MemoryTemperature)
 {
     internal bool IsFresh => DateTime.UtcNow - SampledAt < TimeSpan.FromSeconds(30);
 
     internal string Serialize(string requestId)
         => string.Join('|', requestId, SampledAt.Ticks, Fan1Rpm, Fan2Rpm, CpuTemperature,
-            BatteryTemperature, KeyboardBacklightMode, ChargeStart, ChargeEnd);
+            BatteryTemperature, KeyboardBacklightMode, ChargeStart, ChargeEnd, MemoryTemperature);
 
     internal static bool TryParse(string? value, out HardwareSensorSnapshot snapshot)
     {
         snapshot = default;
         var parts = value?.Split('|');
-        if (parts is not { Length: 9 } || !long.TryParse(parts[1], out var ticks))
+        // 9 fields is a snapshot written before the memory temperature existed;
+        // accept it with that sensor left unknown rather than dropping the whole row.
+        if (parts is not { Length: 9 or 10 } || !long.TryParse(parts[1], out var ticks))
             return false;
 
         snapshot = new HardwareSensorSnapshot(
             new DateTime(ticks, DateTimeKind.Utc),
             ParseNullable(parts[2]), ParseNullable(parts[3]), ParseNullable(parts[4]),
             ParseNullable(parts[5]), ParseNullable(parts[6]), ParseNullable(parts[7]),
-            ParseNullable(parts[8]));
+            ParseNullable(parts[8]),
+            parts.Length > 9 ? ParseNullable(parts[9]) : null);
         return true;
     }
 
@@ -70,6 +74,17 @@ internal static class HardwareSensorController
     private const ulong KeyboardBacklightModeGetCommand = 0x00001306;
     private const ulong BatteryThresholdsGetCommand = 0x00001103;
 
+    // Sensor zones as they are spelled in the firmware: decompiling the ACPI tables
+    // shows OemWMIfun's input byte 0 is a "main function" and byte 1 a "sub
+    // function" (0x0802 = function 2/8 = AML method GFNS, 0x0202 = GTMP), and GTMP
+    // switches over its third byte with a fixed table: 0x00 CDTS (CPU package),
+    // 0x0B DDRS (memory), 0x0E BTND (battery), 0x0F ABNT, 0x21..0x28 skin/keyboard/
+    // palm-rest temperatures. Everything not in that table returns status 1, which
+    // is the AML Default branch - the EC never saw those reads at all.
+    private const byte CpuTemperatureZone = 0x00;
+    private const byte MemoryTemperatureZone = 0x0B;
+    private const byte BatteryTemperatureZone = 0x0E;
+
     // The EC latches fan speed about once a second: two reads inside that window
     // return identical bytes, and a read landing on an updating latch returns a
     // torn value. Measured on a FMB-P (Core Ultra 5 225H) while a fan held a steady
@@ -84,11 +99,18 @@ internal static class HardwareSensorController
     // registry so the next hover adds to the same window.
     private const int FanRoundCount = 2;
     private const int FanRoundSpacingMilliseconds = 1100;
-    // A laptop fan in this class tops out well below 7000 RPM; anything above
-    // 10000 is a torn latch rather than a speed, and dropping it outright keeps
-    // the median from being dragged by it. Readings in between are left for the
-    // median to outvote.
-    private const int FanPlausibleMaxRpm = 10000;
+    // A laptop fan in this class tops out well below 7000 RPM. Measured on a FMB-P
+    // while it audibly ramped up (946 samples): the highest speed the EC ever
+    // reported was 3303, while torn latch reads produced 5560, 7547, 14000, 26785
+    // and 58252 within the same seconds. 10000 let the first two through, so the
+    // ceiling sits at the physical envelope instead of "clearly absurd".
+    private const int FanPlausibleMaxRpm = 6500;
+    // A tear produces a number nothing else agrees with, so a value only counts
+    // when another sample in the window lies near it. The slack scales with the
+    // value: a real fan holding 2200 wobbles by tens of RPM between refreshes,
+    // while 10% of it is still far below the gap a tear leaves.
+    private const int FanCorroborationFloorRpm = 200;
+    private const double FanCorroborationRelative = 0.10;
     // Five values rather than three: one corrupt latch window usually lands two
     // samples in a row (both rounds of a refresh), so a median needs at least
     // three others to outvote it. The cost is that a real fan ramp is followed a
@@ -106,8 +128,9 @@ internal static class HardwareSensorController
         var fans = ReadAndSmoothFans(session);
         var snapshot = new HardwareSensorSnapshot(
             DateTime.UtcNow, fans[0], fans[1],
-            ReadTemperature(session, 0x00), ReadTemperature(session, 0x0E),
-            backlightMode, chargeStart, chargeEnd);
+            ReadTemperature(session, CpuTemperatureZone), ReadTemperature(session, BatteryTemperatureZone),
+            backlightMode, chargeStart, chargeEnd,
+            ReadTemperature(session, MemoryTemperatureZone));
         HardwareSettings.SensorSnapshot = snapshot.Serialize(requestId);
 
         HardwareSettings.KeyboardBacklight = backlightMode switch
@@ -188,13 +211,42 @@ internal static class HardwareSensorController
     // the window agrees; a lone failed latch update among spinning samples is
     // outvoted instead of flashing as a stalled fan.
     private static int? Median(List<FanSpeedSample> history, Func<FanSpeedSample, int?> selector)
+        => CorroboratedMedian(history.Select(selector)
+            .Where(value => value.HasValue)
+            .Select(value => value!.Value)
+            .ToList());
+
+    // Two passes: drop the values no second sample supports, then take the median
+    // of what is left. Filtering first matters because a single tear in a five
+    // sample window is the middle element - it would otherwise be reported as the
+    // fan speed rather than discarded. When nothing corroborates - which happens
+    // when every sample in the window is a different speed, i.e. a fan stepping
+    // through its range - the result is unknown rather than a guess: the tooltip
+    // shows "?" for one refresh instead of a number that is certainly wrong.
+    private static int? CorroboratedMedian(List<int> values)
     {
-        var values = history.Select(selector).Where(value => value.HasValue).Select(value => value!.Value).ToList();
         if (values.Count == 0)
             return null;
 
         values.Sort();
-        return values[values.Count / 2];
+        var supported = new List<int>(values.Count);
+        for (var i = 0; i < values.Count; i++)
+        {
+            var slack = Math.Max(FanCorroborationFloorRpm, (int)(values[i] * FanCorroborationRelative));
+            for (var j = 0; j < values.Count; j++)
+            {
+                if (j == i || Math.Abs(values[j] - values[i]) > slack)
+                    continue;
+
+                supported.Add(values[i]);
+                break;
+            }
+        }
+
+        if (supported.Count == 0)
+            return null;
+
+        return supported[supported.Count / 2];
     }
 
     private static int? ReadTemperature(HonorWmiSession session, byte zone)

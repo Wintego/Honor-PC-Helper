@@ -108,6 +108,14 @@ internal static class DiagnosticsService
                 AppendTemperature(text, hardwareState.CpuTemperature);
                 text.Append(Label(compact, "; бат.: ", "; батарея: ", "; battery: ", "；电池："));
                 AppendTemperature(text, hardwareState.BatteryTemperature);
+                if (hardwareState.MemoryTemperature.HasValue)
+                {
+                    // Zone 0x0B (DDRS in the firmware): the sensor this machine's
+                    // right fan actually ramps for, so it explains noise that CPU
+                    // temperature alone does not.
+                    text.Append(Label(compact, "; пам.: ", "; память: ", "; memory: ", "；内存："));
+                    AppendTemperature(text, hardwareState.MemoryTemperature);
+                }
             }
             if (hardwareState.Fan1Rpm.HasValue || hardwareState.Fan2Rpm.HasValue)
             {
