@@ -19,13 +19,44 @@ internal static class DiagnosticsService
     // обоих языковых вариантов сразу удваивала бы аллокации.
     [ThreadStatic] private static System.Text.StringBuilder? _buffer;
 
+    /// <summary>
+    /// Tooltip text for the tray icon. The Russian wording overruns the 127
+    /// characters NotifyIcon.Text accepts as soon as the performance mode and the
+    /// hardware lines are shown together, and the readings at the end are exactly
+    /// what the user is looking for, so an overflowing tooltip is rebuilt once more
+    /// with short labels before anything is dropped.
+    /// </summary>
     internal static string BuildCompactToolTip()
+    {
+        var text = BuildTooltip(compact: false);
+        if (text.Length <= MaxTooltipLength)
+            return text;
+
+        var compact = BuildTooltip(compact: true);
+        if (compact.Length <= MaxTooltipLength)
+            return compact;
+
+        // Still too long: keep the leading lines that fit whole rather than
+        // chopping a reading in half.
+        var cut = compact[..MaxTooltipLength];
+        var lastLineBreak = cut.LastIndexOfAny(['\r', '\n']);
+        return lastLineBreak > 0 ? cut[..lastLineBreak] : cut;
+    }
+
+    /// <summary>
+    /// Variant of <see cref="L.T"/> for wording that only needs shortening where
+    /// it is long - Russian. The English and Chinese texts already fit.
+    /// </summary>
+    private static string Label(bool compact, string compactRussian, string russian, string english, string? chinese = null)
+        => L.T(compact ? compactRussian : russian, english, chinese);
+
+    private static string BuildTooltip(bool compact)
     {
         var state = HardwareSettings.ReadTooltipState();
         var hasHardwareState = HardwareSensorSnapshot.TryParse(
             state.SensorSnapshot, out var hardwareState) && hardwareState.IsFresh;
         var mode = state.PerformanceModeActive
-            ? L.T("производительный", "performance", "高性能")
+            ? Label(compact, "произв.", "производительный", "performance", "高性能")
             : L.T("умный", "smart", "智能");
         var backlightLevel = hasHardwareState
             ? hardwareState.KeyboardBacklightMode switch
@@ -55,14 +86,17 @@ internal static class DiagnosticsService
             };
         var text = _buffer ??= new System.Text.StringBuilder(MaxTooltipLength + 32);
         text.Clear();
-        text.Append(L.T("Режим: ", "Mode: ", "模式：")).Append(mode);
-        text.AppendLine().Append(L.T("Подсветка: ", "Backlight: ", "背光：")).Append(backlight);
-        text.AppendLine().Append(L.T("Ограничение заряда: ", "Charge limit: ", "充电限制：")).Append(protection);
+        text.Append(Label(compact, "Реж.: ", "Режим: ", "Mode: ", "模式：")).Append(mode);
+        text.AppendLine().Append(Label(compact, "Свет: ", "Подсветка: ", "Backlight: ", "背光：")).Append(backlight);
+        text.AppendLine().Append(Label(compact, "Огр. заряда: ", "Ограничение заряда: ", "Charge limit: ", "充电限制：")).Append(protection);
 
         var power = ReadBatteryPowerWatts();
         if (power.HasValue)
         {
-            text.AppendLine().Append(L.T("Питание: ", "Power: ", "功率："));
+            // This is the battery's charge/discharge rate, not the machine's
+            // power draw: the EC exposes nothing else without administrator
+            // rights. Saying so keeps a held battery from looking like a fault.
+            text.AppendLine().Append(Label(compact, "Бат.: ", "Батарея: ", "Battery: ", "电池功率："));
             AppendPower(text, power.Value);
         }
 
@@ -72,12 +106,12 @@ internal static class DiagnosticsService
             {
                 text.AppendLine().Append("CPU: ");
                 AppendTemperature(text, hardwareState.CpuTemperature);
-                text.Append(L.T("; батарея: ", "; battery: ", "；电池："));
+                text.Append(Label(compact, "; бат.: ", "; батарея: ", "; battery: ", "；电池："));
                 AppendTemperature(text, hardwareState.BatteryTemperature);
             }
             if (hardwareState.Fan1Rpm.HasValue || hardwareState.Fan2Rpm.HasValue)
             {
-                text.AppendLine().Append(L.T("Вентиляторы: ", "Fans: ", "风扇："));
+                text.AppendLine().Append(Label(compact, "Вент.: ", "Вентиляторы: ", "Fans: ", "风扇："));
                 AppendFan(text, hardwareState.Fan1Rpm);
                 text.Append('/');
                 AppendFan(text, hardwareState.Fan2Rpm);
@@ -85,8 +119,6 @@ internal static class DiagnosticsService
             }
         }
 
-        if (text.Length > MaxTooltipLength)
-            text.Length = MaxTooltipLength;
         return text.ToString();
     }
 
@@ -110,7 +142,13 @@ internal static class DiagnosticsService
     {
         if (Math.Abs(watts) < 0.05)
         {
-            text.Append(L.T("0 Вт", "0 W", "0 瓦"));
+            // A charge limiter that already holds the battery inside its range, or
+            // a fully charged one, legitimately reports neither charge nor
+            // discharge. Spelling that out keeps "0 W" from reading as a dead
+            // sensor on machines whose EC reports no rate at all.
+            text.Append(L.T("0 Вт, без тока",
+                "0 W, idle",
+                "0 瓦（未充放电）"));
             return;
         }
 
