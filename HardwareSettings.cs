@@ -30,6 +30,7 @@ internal static class HardwareSettings
     private const string PendingHardwareCommandValue = "PendingHardwareCommand";
     private const string HardwareCommandResultValue = "HardwareCommandResult";
     private const string SensorSnapshotValue = "SensorSnapshot";
+    private const string FanRpmHistoryValue = "FanRpmHistory";
 
     // Обращения идут из UI-потока, фоновых задач и обработчика событий WMI,
     // поэтому доступ к общему ключу сериализуется.
@@ -63,6 +64,17 @@ internal static class HardwareSettings
     {
         get => ReadString(SensorSnapshotValue);
         set => WriteString(SensorSnapshotValue, value);
+    }
+
+    /// <summary>
+    /// Обороты недавних измерений вентиляторов: привилегированный экземпляр
+    /// дописывает в конец каждого опроса по строке, а подсказка показывает
+    /// медиану этого окна.
+    /// </summary>
+    internal static string? FanRpmHistory
+    {
+        get => ReadString(FanRpmHistoryValue);
+        set => WriteString(FanRpmHistoryValue, value);
     }
 
     internal static string? PendingHardwareCommand
