@@ -500,13 +500,29 @@ internal sealed partial class DriverUpdateService
             Options = ForwardOnly()
         };
         using var missingResults = missingSearcher.Get();
-        var missingDeviceId = -1;
-        foreach (var item in missingResults.Cast<ManagementObject>()
-                     .OrderBy(item => Convert.ToString(item["DeviceID"]), StringComparer.OrdinalIgnoreCase))
+        // A forward-only enumerator releases each row as it moves on, so sorting
+        // the live ManagementObject sequence ran the key selector over rows that
+        // were already gone. On a machine with an orphaned device (here
+        // ROOT\SYSTEM\0002, CM_PROB_FAILED_INSTALL, with no Name and no PNPClass)
+        // that threw a NullReferenceException out of the whole inventory. Copy the
+        // three values while enumerating and sort the copies.
+        var missingDevices = new List<(string Name, string DeviceId, string PnpClass)>();
+        foreach (var item in missingResults)
         {
-            var name = Convert.ToString(item["Name"]);
-            var deviceId = Convert.ToString(item["DeviceID"]);
-            var pnpClass = Convert.ToString(item["PNPClass"]);
+            using var device = item;
+            if (device is null)
+                continue;
+
+            missingDevices.Add((
+                Convert.ToString(device["Name"]) ?? string.Empty,
+                Convert.ToString(device["DeviceID"]) ?? string.Empty,
+                Convert.ToString(device["PNPClass"]) ?? string.Empty));
+        }
+
+        var missingDeviceId = -1;
+        foreach (var (name, deviceId, pnpClass) in missingDevices
+                     .OrderBy(device => device.DeviceId, StringComparer.OrdinalIgnoreCase))
+        {
             components.Add(new DriverComponent(
                 missingDeviceId--,
                 "MissingDevice",
@@ -514,7 +530,7 @@ internal sealed partial class DriverUpdateService
                     ? L.T("Неизвестное устройство", "Unknown device", "未知设备")
                     : name,
                 "0",
-                pnpClass ?? string.Empty,
+                pnpClass,
                 deviceId));
         }
 
