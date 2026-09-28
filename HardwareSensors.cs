@@ -263,12 +263,13 @@ internal static class HardwareSensorController
 
     // GCFD (function 4/sub 0x17) answers with the fan's enable flag and the PWM
     // duty the EC is applying right now. Measured against the tach on a FMB-P over
-    // 319 one-second samples, RPM = 72.5 x duty +/- 0.9, which makes the duty a
-    // second opinion the tach cannot give: that machine's left fan reports 94-117
-    // RPM all day at a duty of 97-100%, so the speed line is unusable there while
-    // the duty line is exact. Duty also survives the cases the smoothing median
-    // deliberately gives up on (a torn latch window covering the whole history),
-    // so the tooltip shows both rather than only the noisy one.
+    // 319 one-second samples, RPM = 72.5 x duty +/- 0.9, so the duty is an
+    // independent statement about the same fan and the tooltip can show both.
+    // They disagree informatively: that machine's left fan reports 94-117 RPM all
+    // day while its duty reads 97-100%. Either the speed path for it is broken or
+    // the duty is a value the EC never lowers - which of the two is still open -
+    // but neither reading is a torn latch, and the duty stays valid in the refresh
+    // where the median of speeds correctly refuses to guess.
     private static int? ReadFanDuty(HonorWmiSession session, byte fan)
     {
         try
