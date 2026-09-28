@@ -38,12 +38,26 @@ internal sealed class ApplicationUpdateService
     internal Version CurrentVersion =>
         Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0);
 
-    internal async Task<ApplicationUpdateCheck> CheckAsync(CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Ответ на вопрос "есть ли обновление". null - проверка не состоялась:
+    /// такой ответ ничего не говорит ни о наличии, ни об отсутствии обновления,
+    /// поэтому вызывающие должны оставить то, что знали раньше.
+    /// </summary>
+    internal async Task<ApplicationUpdateCheck?> CheckAsync(CancellationToken cancellationToken = default)
     {
         using var checkCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         checkCancellation.CancelAfter(TimeSpan.FromSeconds(30));
         using var response = await Http.GetAsync(LatestReleaseApi, checkCancellation.Token);
-        response.EnsureSuccessStatusCode();
+        if (!response.IsSuccessStatusCode)
+        {
+            // The release API answers with a redirect or a throttled status now and
+            // then. EnsureSuccessStatusCode turned every such answer into an error
+            // entry in the log, and the log is the first thing a user is asked to
+            // send; report "no answer this round" instead, which is also what the
+            // callers below already do with a failed check.
+            AppLog.Info($"Release check answered {(int)response.StatusCode} {response.ReasonPhrase}");
+            return null;
+        }
         await using var stream = await response.Content.ReadAsStreamAsync(checkCancellation.Token);
         using var document = await JsonDocument.ParseAsync(stream, cancellationToken: checkCancellation.Token);
         var root = document.RootElement;
