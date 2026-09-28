@@ -117,13 +117,35 @@ internal static class DiagnosticsService
                     AppendTemperature(text, hardwareState.MemoryTemperature);
                 }
             }
-            if (hardwareState.Fan1Rpm.HasValue || hardwareState.Fan2Rpm.HasValue)
+            if (hardwareState.Fan1Rpm.HasValue || hardwareState.Fan2Rpm.HasValue
+                || hardwareState.Fan1Duty.HasValue || hardwareState.Fan2Duty.HasValue)
             {
+                var hasRpm = hardwareState.Fan1Rpm.HasValue || hardwareState.Fan2Rpm.HasValue;
                 text.AppendLine().Append(Label(compact, "Вент.: ", "Вентиляторы: ", "Fans: ", "风扇："));
-                AppendFan(text, hardwareState.Fan1Rpm);
-                text.Append('/');
-                AppendFan(text, hardwareState.Fan2Rpm);
-                text.Append(L.T(" об/мин", " RPM", " 转/分"));
+                if (hasRpm)
+                {
+                    AppendFanValue(text, hardwareState.Fan1Rpm);
+                    text.Append('/');
+                    AppendFanValue(text, hardwareState.Fan2Rpm);
+                    text.Append(L.T(" об/мин", " RPM", " 转/分"));
+                }
+                if (hardwareState.Fan1Duty.HasValue || hardwareState.Fan2Duty.HasValue)
+                {
+                    // What the EC actually drives the fans with. The tach is a pair
+                    // of non-atomic bytes the firmware latches once a second, so it
+                    // can be torn and can stay unknown while the median waits for a
+                    // second sample; the duty is valid in every reading. Showing it
+                    // next to the speed tells whether silence means "idling" (duty
+                    // near 0) or "the speed readout is lying" (duty is high).
+                    if (hasRpm)
+                        text.Append(Label(compact, "; ШИМ ", "; цикл ШИМ ", "; duty ", "，占空 "));
+                    else
+                        text.Append(Label(compact, "ШИМ ", "Цикл ШИМ ", "Duty ", "占空 "));
+                    AppendFanValue(text, hardwareState.Fan1Duty);
+                    text.Append('/');
+                    AppendFanValue(text, hardwareState.Fan2Duty);
+                    text.Append('%');
+                }
             }
         }
 
@@ -138,7 +160,10 @@ internal static class DiagnosticsService
             text.Append('?');
     }
 
-    private static void AppendFan(System.Text.StringBuilder text, int? value)
+    // Shared by the fan speed and the fan duty: a missing reading stays "?",
+    // because 0 would look like a stalled fan rather than a sensor that answered
+    // nothing.
+    private static void AppendFanValue(System.Text.StringBuilder text, int? value)
     {
         if (value.HasValue)
             text.Append(value.Value);

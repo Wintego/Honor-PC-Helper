@@ -9,21 +9,24 @@ internal readonly record struct HardwareSensorSnapshot(
     int? KeyboardBacklightMode,
     int? ChargeStart,
     int? ChargeEnd,
-    int? MemoryTemperature)
+    int? MemoryTemperature,
+    int? Fan1Duty,
+    int? Fan2Duty)
 {
     internal bool IsFresh => DateTime.UtcNow - SampledAt < TimeSpan.FromSeconds(30);
 
     internal string Serialize(string requestId)
         => string.Join('|', requestId, SampledAt.Ticks, Fan1Rpm, Fan2Rpm, CpuTemperature,
-            BatteryTemperature, KeyboardBacklightMode, ChargeStart, ChargeEnd, MemoryTemperature);
+            BatteryTemperature, KeyboardBacklightMode, ChargeStart, ChargeEnd, MemoryTemperature,
+            Fan1Duty, Fan2Duty);
 
+    // Append-only fields: an older helper writes 9 or 10 parts and the newer
+    // sensors simply stay unknown instead of making every tooltip line disappear.
     internal static bool TryParse(string? value, out HardwareSensorSnapshot snapshot)
     {
         snapshot = default;
         var parts = value?.Split('|');
-        // 9 fields is a snapshot written before the memory temperature existed;
-        // accept it with that sensor left unknown rather than dropping the whole row.
-        if (parts is not { Length: 9 or 10 } || !long.TryParse(parts[1], out var ticks))
+        if (parts is not { Length: >= 9 and <= 12 } || !long.TryParse(parts[1], out var ticks))
             return false;
 
         snapshot = new HardwareSensorSnapshot(
@@ -31,9 +34,12 @@ internal readonly record struct HardwareSensorSnapshot(
             ParseNullable(parts[2]), ParseNullable(parts[3]), ParseNullable(parts[4]),
             ParseNullable(parts[5]), ParseNullable(parts[6]), ParseNullable(parts[7]),
             ParseNullable(parts[8]),
-            parts.Length > 9 ? ParseNullable(parts[9]) : null);
+            At(parts, 9), At(parts, 10), At(parts, 11));
         return true;
     }
+
+    private static int? At(string[] parts, int index)
+        => index < parts.Length ? ParseNullable(parts[index]) : null;
 
     internal static int? ParseNullable(string value)
         => int.TryParse(value, out var result) ? result : null;
@@ -70,6 +76,7 @@ internal readonly record struct FanSpeedSample(DateTime SampledAt, int? Fan1Rpm,
 internal static class HardwareSensorController
 {
     private const ulong FanSpeedGetCommand = 0x00000802;
+    private const ulong FanConfigGetCommand = 0x00001704;
     private const ulong TemperatureGetCommand = 0x00000202;
     private const ulong KeyboardBacklightModeGetCommand = 0x00001306;
     private const ulong BatteryThresholdsGetCommand = 0x00001103;
@@ -104,6 +111,10 @@ internal static class HardwareSensorController
     // reported was 3303, while torn latch reads produced 5560, 7547, 14000, 26785
     // and 58252 within the same seconds. 10000 let the first two through, so the
     // ceiling sits at the physical envelope instead of "clearly absurd".
+    // 3303 is not that fan's maximum either: the EC's own duty readout (see
+    // ReadFanDuty) never went above 45.6% for it, and 72.5 RPM per duty point puts
+    // full duty near 7250 RPM - which is why the ceiling is a plausibility bound
+    // for the tach path, not a statement about the hardware.
     private const int FanPlausibleMaxRpm = 6500;
     // A tear produces a number nothing else agrees with, so a value only counts
     // when another sample in the window lies near it. The slack scales with the
@@ -130,7 +141,8 @@ internal static class HardwareSensorController
             DateTime.UtcNow, fans[0], fans[1],
             ReadTemperature(session, CpuTemperatureZone), ReadTemperature(session, BatteryTemperatureZone),
             backlightMode, chargeStart, chargeEnd,
-            ReadTemperature(session, MemoryTemperatureZone));
+            ReadTemperature(session, MemoryTemperatureZone),
+            ReadFanDuty(session, 0), ReadFanDuty(session, 1));
         HardwareSettings.SensorSnapshot = snapshot.Serialize(requestId);
 
         HardwareSettings.KeyboardBacklight = backlightMode switch
@@ -247,6 +259,31 @@ internal static class HardwareSensorController
             return null;
 
         return supported[supported.Count / 2];
+    }
+
+    // GCFD (function 4/sub 0x17) answers with the fan's enable flag and the PWM
+    // duty the EC is applying right now. Measured against the tach on a FMB-P over
+    // 319 one-second samples, RPM = 72.5 x duty +/- 0.9, which makes the duty a
+    // second opinion the tach cannot give: that machine's left fan reports 94-117
+    // RPM all day at a duty of 97-100%, so the speed line is unusable there while
+    // the duty line is exact. Duty also survives the cases the smoothing median
+    // deliberately gives up on (a torn latch window covering the whole history),
+    // so the tooltip shows both rather than only the noisy one.
+    private static int? ReadFanDuty(HonorWmiSession session, byte fan)
+    {
+        try
+        {
+            var output = session.Call(FanConfigGetCommand | ((ulong)fan << 16));
+            // Status byte 0 is only ever zero when the branch actually ran; the
+            // firmware's fallback leaves the duty byte at 0, which would otherwise
+            // be reported as "fan off" on a machine that has no GCFD.
+            return output.Length > 2 && output[0] == 0 ? output[2] : null;
+        }
+        catch (Exception exception)
+        {
+            AppLog.Error($"Could not read fan {fan + 1} duty", exception);
+            return null;
+        }
     }
 
     private static int? ReadTemperature(HonorWmiSession session, byte zone)
