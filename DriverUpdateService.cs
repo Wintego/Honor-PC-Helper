@@ -648,40 +648,55 @@ internal sealed partial class DriverUpdateService
         // endpoints for a known offering, so retrying it once per regional
         // product-tree endpoint only repeats an identical request.
         var endpoints = knownOfferings.Count > 0 ? SupportEndpoints.Take(1) : SupportEndpoints;
+        // Сервер каталога иногда подвисает на минуту-другую. С одним сервером
+        // запасного нет, поэтому сорвавшийся запрос повторяется один раз;
+        // при нескольких запасным служит следующий регион.
+        var attempts = knownOfferings.Count > 0 ? 2 : 1;
         foreach (var endpoint in endpoints)
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(TimeSpan.FromSeconds(30));
-            try
+            for (var attempt = 1; attempt <= attempts; attempt++)
             {
-                // HONOR's product-tree lookup is by far the slowest part of the
-                // check and occasionally stalls.  Prefer a verified model to
-                // offering mapping when one is available; package metadata is
-                // still fetched live from the official catalog.
-                var offerings = knownOfferings.Count > 0
-                    ? knownOfferings
-                    : await ResolveSupportOfferingsAsync(endpoint, machine, timeout.Token);
-                if (offerings.Count == 0)
-                    continue;
-
-                var result = await ReadSupportPackagesAsync(
-                    endpoint, offerings, components, timeout.Token);
-                if (result.Updates.Count > 0)
+                var last = attempt == attempts;
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeout.CancelAfter(TimeSpan.FromSeconds(30));
+                try
                 {
-                    AppLog.Info($"Official HONOR support matched {string.Join(',', offerings)}; "
-                        + $"{result.Updates.Count} package(s)");
-                    return (result.Components, result.Updates, result.AvailableVersions, true);
+                    // HONOR's product-tree lookup is by far the slowest part of the
+                    // check and occasionally stalls.  Prefer a verified model to
+                    // offering mapping when one is available; package metadata is
+                    // still fetched live from the official catalog.
+                    var offerings = knownOfferings.Count > 0
+                        ? knownOfferings
+                        : await ResolveSupportOfferingsAsync(endpoint, machine, timeout.Token);
+                    if (offerings.Count == 0)
+                        break;
+
+                    var result = await ReadSupportPackagesAsync(
+                        endpoint, offerings, components, timeout.Token);
+                    if (result.Updates.Count > 0)
+                    {
+                        AppLog.Info($"Official HONOR support matched {string.Join(',', offerings)}; "
+                            + $"{result.Updates.Count} package(s)");
+                        return (result.Components, result.Updates, result.AvailableVersions, true);
+                    }
+                    break;
                 }
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                AppLog.Info($"HONOR support catalog {endpoint.CountryCode} timed out");
-                hadFailure = true;
-            }
-            catch (Exception exception)
-            {
-                AppLog.Error($"HONOR support catalog {endpoint.CountryCode} failed", exception);
-                hadFailure = true;
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    AppLog.Info($"HONOR support catalog {endpoint.CountryCode} timed out"
+                        + (last ? string.Empty : "; retrying"));
+                    hadFailure |= last;
+                }
+                catch (Exception exception) when (!last && exception is HttpRequestException or IOException)
+                {
+                    AppLog.Info($"HONOR support catalog {endpoint.CountryCode} failed; retrying: {exception.Message}");
+                }
+                catch (Exception exception)
+                {
+                    AppLog.Error($"HONOR support catalog {endpoint.CountryCode} failed", exception);
+                    hadFailure = true;
+                    break;
+                }
             }
         }
         AppLog.Info($"Official HONOR support has no catalog match for {machine.DeviceName}/{machine.CVersion}");

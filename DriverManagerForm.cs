@@ -427,7 +427,7 @@ internal sealed class DriverManagerForm : Form
             var applicationCheck = check.Application;
             if (!result.IsComplete)
             {
-                _updatesLabel.Text = L.T("Не удалось получить список драйверов", "Could not retrieve driver list", "无法获取驱动程序列表");
+                _updatesLabel.Text = L.T("Сервер HONOR не ответил, попробуйте позже", "HONOR server did not respond, try again later", "荣耀服务器无响应，请稍后再试");
                 _updatesLabel.ForeColor = _turbo;
                 return;
             }
