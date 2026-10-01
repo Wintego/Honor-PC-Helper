@@ -11,6 +11,12 @@ internal sealed class PowerModeEventService : IDisposable
     // как KEY_WLAN, но на этой клавиатуре F8 - именно камера.
     private const uint CameraKeyCode = 0x288;
 
+    // Клавиша скриншота на F12. Код снят с MagicBook Pro 14. Вместе с событием
+    // прошивка шлёт скан-код E0_78 без виртуальной клавиши, поэтому ни Windows,
+    // ни PC Manager назначить на неё действие не могут. Скан-код у моделей
+    // разный (встречался и E0_77), а событие идёт по общей схеме с F7 и F8.
+    private const uint ScreenshotKeyCode = 0x28E;
+
     // Клавиша переключает состояние, поэтому лишнее событие обошлось бы дорого.
     // На проверенной машине одно нажатие даёт ровно одно событие, но у другой
     // прошивки это не гарантировано. Порог подавляющий - отсчёт продлевается
@@ -22,6 +28,7 @@ internal sealed class PowerModeEventService : IDisposable
     private readonly Action<KeyboardBacklightLevel> _onBacklightChanged;
     private readonly Action _onMicMuteKey;
     private readonly Action _onCameraKey;
+    private readonly Action _onScreenshotKey;
     private readonly Func<bool>? _shouldIgnoreBacklightEvent;
     private ManagementEventWatcher? _watcher;
     private long _lastEventTime;
@@ -29,6 +36,7 @@ internal sealed class PowerModeEventService : IDisposable
     // TickCount64 ещё мал, первое нажатие не попадало под собственный порог.
     private long _lastMicMuteKeyTime = -HotkeyDebounceMilliseconds;
     private long _lastCameraKeyTime = -HotkeyDebounceMilliseconds;
+    private long _lastScreenshotKeyTime = -HotkeyDebounceMilliseconds;
     private volatile bool _currentState = HardwareSettings.PerformanceModeActive;
 
     internal PowerModeEventService(
@@ -36,12 +44,14 @@ internal sealed class PowerModeEventService : IDisposable
         Action<KeyboardBacklightLevel> onBacklightChanged,
         Action onMicMuteKey,
         Action onCameraKey,
+        Action onScreenshotKey,
         Func<bool>? shouldIgnoreBacklightEvent = null)
     {
         _onModeChanged = onModeChanged;
         _onBacklightChanged = onBacklightChanged;
         _onMicMuteKey = onMicMuteKey;
         _onCameraKey = onCameraKey;
+        _onScreenshotKey = onScreenshotKey;
         _shouldIgnoreBacklightEvent = shouldIgnoreBacklightEvent;
     }
 
@@ -101,6 +111,13 @@ internal sealed class PowerModeEventService : IDisposable
         {
             if (Accept(ref _lastCameraKeyTime))
                 _onCameraKey();
+            return;
+        }
+
+        if (code == ScreenshotKeyCode)
+        {
+            if (Accept(ref _lastScreenshotKeyTime))
+                _onScreenshotKey();
             return;
         }
 

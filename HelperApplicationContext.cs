@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace HonorPCHelper;
 
 internal sealed class HelperApplicationContext : ApplicationContext
@@ -153,6 +155,7 @@ internal sealed class HelperApplicationContext : ApplicationContext
                 HandleKeyboardBacklightChanged,
                 HandleMicMuteKey,
                 HandleCameraKey,
+                HandleScreenshotKey,
                 ShouldIgnoreBacklightEvent);
             events.Start();
             _powerModeEvents = events;
@@ -507,6 +510,26 @@ internal sealed class HelperApplicationContext : ApplicationContext
                 : L.T("Изображение снова доступно приложениям.",
                     "Video is available to apps again.",
                     "应用程序可以再次获取画面。"));
+    }
+
+    // Клавиша F12. Открывает выделение области экрана - то же, что Win+Shift+S.
+    // Запуск через оболочку может занять время, поэтому не в потоке события WMI.
+    private void HandleScreenshotKey()
+    {
+        if (_disposed)
+            return;
+
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                using var _ = Process.Start(new ProcessStartInfo("ms-screenclip:") { UseShellExecute = true });
+            }
+            catch (Exception exception)
+            {
+                AppLog.Error("Screen snip launch failed", exception);
+            }
+        });
     }
 
     // Уведомление показывает значок в трее, а он живёт в потоке интерфейса.

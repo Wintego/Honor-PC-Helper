@@ -35,6 +35,8 @@ Hovering the tray icon shows the live state: mode, backlight level, charge range
 
 **F8** turns the camera off and on and raises a system notification with the new state. The device stays connected and the switch works mid-call: apps receive a black frame. The state survives a reboot. The first press may ask for administrator rights once.
 
+**F12** opens the screen snip overlay, the same as Win+Shift+S. Windows itself cannot assign anything to this key: it sends a firmware event and a scan code with no virtual key behind it.
+
 **Fn+P** switches performance mode — the same switch as the tray menu item.
 
 Backlight level, haptics and edge gestures are reapplied after resume (including modern standby) and after the touchpad reconnects. The charge limit is checked after resume as well, and the chosen range is written back when the EC has dropped it.
@@ -122,7 +124,7 @@ Exit codes: `0` success, `1` failure, `2` the argument value was not understood.
 
 **Fn+P is not reflected in the menu.** The app listens to `OemWMIEvent`; if the WMI event subscription could not start, the reason is in the log.
 
-**F7 or F8 does nothing.** They ride on the same `OemWMIEvent` subscription as Fn+P, so check the log for that first. The event codes are `0x287` (microphone) and `0x288` (camera) on a MagicBook Pro 14; if yours sends something else, open an issue with the codes your machine reports.
+**F7, F8 or F12 does nothing.** They ride on the same `OemWMIEvent` subscription as Fn+P, so check the log for that first. The event codes are `0x287` (microphone), `0x288` (camera) and `0x28E` (screenshot) on a MagicBook Pro 14; if yours sends something else, open an issue with the codes your machine reports.
 
 **F8 shows the notification but the camera keeps filming.** The model ships a camera without the Device MFT that reads `CameraStatus`. Open an issue with the laptop model and the camera's device ID from Device Manager.
 
