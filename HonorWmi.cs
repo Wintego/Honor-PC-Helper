@@ -14,7 +14,25 @@ internal sealed class HonorWmiCommandException(int errorCode, string message) : 
 /// </summary>
 internal sealed class HonorWmiSession : IDisposable
 {
+    // Экземпляров OemWMIMethod бывает два (HWMI_0 и HWMI_1), а порядок перечисления
+    // WMI ничем не гарантирован. PC Manager обращается к HWMI_0.
+    private const string PreferredInstance = "HWMI_0";
+
     private ManagementObject? _instance;
+
+    /// <summary>Выбирает HWMI_0, а если его нет - первый найденный экземпляр.</summary>
+    internal static ManagementObject? SelectInstance(IEnumerable<ManagementObject> instances)
+    {
+        ManagementObject? first = null;
+        foreach (var instance in instances)
+        {
+            if (instance["InstanceName"] is string name
+                && name.EndsWith(PreferredInstance, StringComparison.OrdinalIgnoreCase))
+                return instance;
+            first ??= instance;
+        }
+        return first;
+    }
 
     private ManagementObject GetInstance()
     {
@@ -27,7 +45,7 @@ internal sealed class HonorWmiSession : IDisposable
 
         using var searcher = new ManagementObjectSearcher(scope, new ObjectQuery("SELECT * FROM OemWMIMethod"));
         using var instances = searcher.Get();
-        return _instance = instances.Cast<ManagementObject>().FirstOrDefault()
+        return _instance = SelectInstance(instances.Cast<ManagementObject>())
             ?? throw new InvalidOperationException(L.T(
                 "Интерфейс HONOR BIOS WMI не найден.",
                 "HONOR BIOS WMI interface was not found.",

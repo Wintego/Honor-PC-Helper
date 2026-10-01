@@ -78,7 +78,7 @@ internal sealed class HelperApplicationContext : ApplicationContext
         // прошивкой, успеют его перезаписать.
         HardwareSettings.SeedPreferredBatteryProtection();
         _trayIcon = TrayIconFactory.Create(
-            HardwareSettings.PerformanceModeActive,
+            HardwareSettings.PerformanceModeActive || HardwareSettings.HunterModeActive,
             ApplicationUpdateWatcher.Available is not null);
         // Подсказка обращается к WMI, поэтому при старте показывается название
         // приложения, а настоящий текст подставляется первым же обновлением:
@@ -622,7 +622,14 @@ internal sealed class HelperApplicationContext : ApplicationContext
             if (!await PrivilegedHardware.TryReadSensorsTaskAsync() || _disposed || _uiDispatcher.IsDisposed)
                 return;
 
-            _uiDispatcher.BeginInvoke(() => UpdateTrayTooltip(force: true));
+            // Опрос заодно сверяет режим с прошивкой, поэтому обновляется и значок.
+            _uiDispatcher.BeginInvoke(() =>
+            {
+                if (_disposed)
+                    return;
+                UpdateTrayTooltip(force: true);
+                UpdateTrayIcon();
+            });
         }
         catch (Exception exception)
         {
@@ -729,8 +736,9 @@ internal sealed class HelperApplicationContext : ApplicationContext
 
     private void UpdateTrayIcon()
     {
+        // Отдельного значка у HUNTER нет: это тоже производительный режим.
         var icon = TrayIconFactory.Create(
-            HardwareSettings.PerformanceModeActive,
+            HardwareSettings.PerformanceModeActive || HardwareSettings.HunterModeActive,
             ApplicationUpdateWatcher.Available is not null);
         if (ReferenceEquals(icon, _trayIcon))
             return;

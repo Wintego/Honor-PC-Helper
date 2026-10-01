@@ -24,7 +24,6 @@ internal static class HonorAcpiDirect
     private const string Namespace = @"root\WMI";
     private const string ClassName = "OemWMIMethod";
     private const string MethodName = "OemWMIfun";
-    private const string PreferredInstance = "HWMI_0";
     private const int InputLength = 64;
 
     // GUID блока данных ACPI-WMI (класс OemWMIMethod).
@@ -95,11 +94,7 @@ internal static class HonorAcpiDirect
     private static ManagementObject? FindInstance()
     {
         using var searcher = new ManagementObjectSearcher(Namespace, $"SELECT * FROM {ClassName}");
-        var instances = searcher.Get().Cast<ManagementObject>().ToArray();
-        var preferred = instances.FirstOrDefault(instance =>
-            instance["InstanceName"] is string name
-            && name.EndsWith(PreferredInstance, StringComparison.OrdinalIgnoreCase));
-        return preferred ?? instances.FirstOrDefault();
+        return HonorWmiSession.SelectInstance(searcher.Get().Cast<ManagementObject>());
     }
 
     private static void Reset()

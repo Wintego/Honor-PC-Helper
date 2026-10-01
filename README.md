@@ -22,12 +22,12 @@ One portable `.exe` (~49 MB, self-contained): no installer, no service, no telem
 | **Keyboard → Schedule** | On/off, turn-on hour, turn-off hour, level | Turns the backlight on and off at whole hours. Changing the level by hand suspends the schedule until the next boundary |
 | **Touchpad → Vibration strength** | Low, Medium, High | Haptic feedback of the force pad. Shown only on models that have one |
 | **Touchpad → Edge gestures** | Brightness (left edge), Volume (right edge) | Enables or disables the vertical one-finger edge swipes |
-| **Performance mode** | On/off checkbox | Same switch as **Fn+P**. Requires AC power and at least 20% charge; turned off on sleep and when the charger is unplugged. The tray icon is filled while it is on |
+| **Performance mode** | On/off checkbox | Same switch as **Fn+P**. Requires AC power and at least 20% charge; turned off on sleep and when the charger is unplugged. The tray icon is filled while it is on. On models with HUNTER mode (MagicBook Pro 16 HUNTER) the item is greyed out while HUNTER is on: that mode is switched only in PC Manager |
 | **Update to …** | — | Appears while a newer release exists. Downloads and installs it; the app restarts |
 | **Drivers** | — | Opens the driver and BIOS window, see [Drivers](#drivers) |
 | **Start with Windows** | On/off checkbox | Adds or removes an `HKCU\…\Run` entry |
 
-Hovering the tray icon shows the live state: mode, backlight level, charge range, charge/discharge power in watts, CPU and battery temperature, both fan speeds. Sensors are polled at most once every 5 seconds and only while the pointer is on the icon.
+Hovering the tray icon shows the live state: mode, backlight level, charge range, charge/discharge power in watts, CPU and battery temperature, both fan speeds (with the target speed, where the firmware reports one). The mode is read back from the firmware too, so a change made in PC Manager shows up. Sensors are polled at most once every 5 seconds and only while the pointer is on the icon.
 
 ## Function keys
 

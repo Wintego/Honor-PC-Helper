@@ -139,6 +139,17 @@ internal sealed class PowerModeEventService : IDisposable
             return;
         }
 
+        if (code == 0x2A8)
+        {
+            // HUNTER на игровых моделях (issue #7). Событие сообщает итоговый
+            // режим, а не нажатие, поэтому повтор безвреден и порог не нужен.
+            _currentState = false;
+            HardwareSettings.HunterModeActive = true;
+            HardwareSettings.PerformanceModeActive = false;
+            _onModeChanged(false);
+            return;
+        }
+
         if (code is not (0x2A0 or 0x2A1 or 0x2A6))
             return;
 
@@ -153,6 +164,7 @@ internal sealed class PowerModeEventService : IDisposable
             0x2A1 => true,
             _ => !_currentState
         };
+        HardwareSettings.HunterModeActive = false;
         HardwareSettings.PerformanceModeActive = _currentState;
         _onModeChanged(_currentState);
     }

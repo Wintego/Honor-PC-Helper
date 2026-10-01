@@ -18,6 +18,7 @@ internal static class HardwareSettings
     private const string KeyboardBacklightTimeoutValue = "KeyboardBacklightTimeout";
     private const ushort DefaultBacklightTimeout = 60;
     private const string PerformanceModeValue = "PerformanceModeActive";
+    private const string HunterModeValue = "HunterModeActive";
     private const string BatteryProtectionValue = "BatteryProtectionMode";
     private const string PreferredBatteryProtectionValue = "PreferredBatteryProtectionMode";
     private const string PowerUnlockValue = "PowerUnlockEnabled";
@@ -42,6 +43,7 @@ internal static class HardwareSettings
     internal readonly record struct TooltipState(
         string? SensorSnapshot,
         bool PerformanceModeActive,
+        bool HunterModeActive,
         KeyboardBacklightLevel? KeyboardBacklight,
         BatteryProtectionMode? BatteryProtection);
 
@@ -54,6 +56,7 @@ internal static class HardwareSettings
             return new TooltipState(
                 key.GetValue(SensorSnapshotValue) as string,
                 key.GetValue(PerformanceModeValue) as int? is { } performance && performance != 0,
+                key.GetValue(HunterModeValue) as int? is { } hunter && hunter != 0,
                 ParseEnum<KeyboardBacklightLevel>(key.GetValue(KeyboardBacklightValue) as string),
                 ParseEnum<BatteryProtectionMode>(key.GetValue(BatteryProtectionValue) as string));
         }
@@ -178,6 +181,16 @@ internal static class HardwareSettings
     {
         get => ReadInt(PerformanceModeValue) is { } value && value != 0;
         set => WriteInt(PerformanceModeValue, value ? 1 : 0);
+    }
+
+    /// <summary>
+    /// Режим HUNTER, третий режим игровых моделей. Его включает только
+    /// HONOR PC Manager; приложение режим показывает, но не переключает.
+    /// </summary>
+    internal static bool HunterModeActive
+    {
+        get => ReadInt(HunterModeValue) is { } value && value != 0;
+        set => WriteInt(HunterModeValue, value ? 1 : 0);
     }
 
     /// <summary>

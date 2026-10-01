@@ -24,9 +24,11 @@ internal static class DiagnosticsService
         var state = HardwareSettings.ReadTooltipState();
         var hasHardwareState = HardwareSensorSnapshot.TryParse(
             state.SensorSnapshot, out var hardwareState) && hardwareState.IsFresh;
-        var mode = state.PerformanceModeActive
-            ? L.T("производительный", "performance", "高性能")
-            : L.T("умный", "smart", "智能");
+        var mode = state.HunterModeActive
+            ? "HUNTER"
+            : state.PerformanceModeActive
+                ? L.T("производительный", "performance", "高性能")
+                : L.T("умный", "smart", "智能");
         var backlightLevel = hasHardwareState
             ? hardwareState.KeyboardBacklightMode switch
             {
@@ -55,14 +57,16 @@ internal static class DiagnosticsService
             };
         var text = _buffer ??= new System.Text.StringBuilder(MaxTooltipLength + 32);
         text.Clear();
+        // Строки разделяются одним \n: подсказка ограничена 127 символами,
+        // и пары \r\n отняли бы у неё ещё пять.
         text.Append(L.T("Режим: ", "Mode: ", "模式：")).Append(mode);
-        text.AppendLine().Append(L.T("Подсветка: ", "Backlight: ", "背光：")).Append(backlight);
-        text.AppendLine().Append(L.T("Ограничение заряда: ", "Charge limit: ", "充电限制：")).Append(protection);
+        text.Append('\n').Append(L.T("Подсветка: ", "Backlight: ", "背光：")).Append(backlight);
+        text.Append('\n').Append(L.T("Заряд: ", "Charge limit: ", "充电限制：")).Append(protection);
 
         var power = ReadBatteryPowerWatts();
         if (power.HasValue)
         {
-            text.AppendLine().Append(L.T("Питание: ", "Power: ", "功率："));
+            text.Append('\n').Append(L.T("Питание: ", "Power: ", "功率："));
             AppendPower(text, power.Value);
         }
 
@@ -70,19 +74,13 @@ internal static class DiagnosticsService
         {
             if (hardwareState.CpuTemperature.HasValue || hardwareState.BatteryTemperature.HasValue)
             {
-                text.AppendLine().Append("CPU: ");
+                text.Append('\n').Append("CPU: ");
                 AppendTemperature(text, hardwareState.CpuTemperature);
                 text.Append(L.T("; батарея: ", "; battery: ", "；电池："));
                 AppendTemperature(text, hardwareState.BatteryTemperature);
             }
             if (hardwareState.Fan1Rpm.HasValue || hardwareState.Fan2Rpm.HasValue)
-            {
-                text.AppendLine().Append(L.T("Вентиляторы: ", "Fans: ", "风扇："));
-                AppendFan(text, hardwareState.Fan1Rpm);
-                text.Append('/');
-                AppendFan(text, hardwareState.Fan2Rpm);
-                text.Append(L.T(" об/мин", " RPM", " 转/分"));
-            }
+                AppendFans(text, hardwareState);
         }
 
         if (text.Length > MaxTooltipLength)
@@ -98,12 +96,45 @@ internal static class DiagnosticsService
             text.Append('?');
     }
 
-    private static void AppendFan(System.Text.StringBuilder text, int? value)
+    /// <summary>
+    /// Обороты вентиляторов вместе с целевыми, к которым их ведёт прошивка.
+    /// Если строка с целью не влезает в подсказку, остаются одни фактические:
+    /// обрезка посреди числа показала бы неверные обороты.
+    /// </summary>
+    private static void AppendFans(System.Text.StringBuilder text, HardwareSensorSnapshot state)
+    {
+        var start = text.Length;
+        text.Append('\n').Append(L.T("Вент.: ", "Fans: ", "风扇："));
+        var valuesStart = text.Length;
+        // MagicBook Pro 14 цель не сообщает: байты под неё нулевые и при вращении.
+        var target1 = state.Fan1TargetRpm is > 0 ? state.Fan1TargetRpm : null;
+        var target2 = state.Fan2TargetRpm is > 0 ? state.Fan2TargetRpm : null;
+        if (target1.HasValue || target2.HasValue)
+        {
+            AppendFan(text, state.Fan1Rpm, target1);
+            text.Append(" / ");
+            AppendFan(text, state.Fan2Rpm, target2);
+            if (text.Length <= MaxTooltipLength)
+                return;
+            text.Length = valuesStart;
+        }
+
+        AppendFan(text, state.Fan1Rpm, null);
+        text.Append('/');
+        AppendFan(text, state.Fan2Rpm, null);
+        text.Append(L.T(" об/мин", " RPM", " 转/分"));
+        if (text.Length > MaxTooltipLength)
+            text.Length = start;
+    }
+
+    private static void AppendFan(System.Text.StringBuilder text, int? value, int? target)
     {
         if (value.HasValue)
             text.Append(value.Value);
         else
             text.Append('?');
+        if (target.HasValue)
+            text.Append('→').Append(target.Value);
     }
 
     private static void AppendPower(System.Text.StringBuilder text, double watts)
