@@ -54,7 +54,10 @@ internal sealed class ApplicationUpdateWatcher : IDisposable
             try
             {
                 await Task.Delay(delay, cancellationToken);
-                Publish((await _service.CheckAsync(cancellationToken)).Update);
+                // Null - GitHub не ответил по существу: прежнее состояние точки остаётся.
+                var check = await _service.CheckAsync(cancellationToken);
+                if (check is not null)
+                    Publish(check.Update);
             }
             catch (OperationCanceledException)
             {

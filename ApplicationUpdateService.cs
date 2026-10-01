@@ -38,12 +38,20 @@ internal sealed class ApplicationUpdateService
     internal Version CurrentVersion =>
         Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0);
 
-    internal async Task<ApplicationUpdateCheck> CheckAsync(CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Проверяет последний релиз. Null - GitHub ответил не 2xx (502 прокси,
+    /// 403 лимита запросов): проверка ничего не сказала о наличии обновления.
+    /// </summary>
+    internal async Task<ApplicationUpdateCheck?> CheckAsync(CancellationToken cancellationToken = default)
     {
         using var checkCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         checkCancellation.CancelAfter(TimeSpan.FromSeconds(30));
         using var response = await Http.GetAsync(LatestReleaseApi, checkCancellation.Token);
-        response.EnsureSuccessStatusCode();
+        if (!response.IsSuccessStatusCode)
+        {
+            AppLog.Info($"Application update check got no answer: {(int)response.StatusCode} ({response.ReasonPhrase})");
+            return null;
+        }
         await using var stream = await response.Content.ReadAsStreamAsync(checkCancellation.Token);
         using var document = await JsonDocument.ParseAsync(stream, cancellationToken: checkCancellation.Token);
         var root = document.RootElement;

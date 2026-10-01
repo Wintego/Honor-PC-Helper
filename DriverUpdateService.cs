@@ -500,13 +500,23 @@ internal sealed partial class DriverUpdateService
             Options = ForwardOnly()
         };
         using var missingResults = missingSearcher.Get();
-        var missingDeviceId = -1;
-        foreach (var item in missingResults.Cast<ManagementObject>()
-                     .OrderBy(item => Convert.ToString(item["DeviceID"]), StringComparer.OrdinalIgnoreCase))
+        // Однонаправленная выборка освобождает строку при переходе к следующей,
+        // поэтому значения копируются во время обхода, а сортируются копии:
+        // OrderBy по живой выборке читал уже освобождённые объекты.
+        var missingDevices = new List<(string? Name, string? DeviceId, string? PnpClass)>();
+        foreach (var item in missingResults)
         {
-            var name = Convert.ToString(item["Name"]);
-            var deviceId = Convert.ToString(item["DeviceID"]);
-            var pnpClass = Convert.ToString(item["PNPClass"]);
+            using var device = item;
+            missingDevices.Add((
+                Convert.ToString(device["Name"]),
+                Convert.ToString(device["DeviceID"]),
+                Convert.ToString(device["PNPClass"])));
+        }
+
+        var missingDeviceId = -1;
+        foreach (var (name, deviceId, pnpClass) in missingDevices
+                     .OrderBy(device => device.DeviceId, StringComparer.OrdinalIgnoreCase))
+        {
             components.Add(new DriverComponent(
                 missingDeviceId--,
                 "MissingDevice",
