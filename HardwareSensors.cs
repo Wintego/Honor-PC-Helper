@@ -52,6 +52,12 @@ internal static class HardwareSensorController
     private const ulong BatteryThresholdsGetCommand = 0x00001103;
     private const ulong PerformanceModeGetCommand = 0x00000E04;
 
+    // EC обновляет обороты раз в секунду, и чтение посреди обновления даёт
+    // порванное значение: на FMB-P попадались 12269, 26785, 53645 при ~2000
+    // реальных (issue #8). Такое показываем как "?". Порог с запасом над полным
+    // ШИМ, поэтому правдоподобные на вид разрывы вроде 5560 он пропускает.
+    private const int FanPlausibleMaxRpm = 8000;
+
     // Значения 04 0E: 0 - умный, 1 - производительный, 3 - HUNTER.
     // HUNTER снят с MagicBook Pro 16 HUNTER 2024 (issue #7).
     private const int SmartMode = 0;
@@ -100,7 +106,8 @@ internal static class HardwareSensorController
         try
         {
             var output = session.Call(FanSpeedGetCommand | ((ulong)index << 16));
-            return (output.Length >= 3 ? output[1] | (output[2] << 8) : null,
+            int? actual = output.Length >= 3 ? output[1] | (output[2] << 8) : null;
+            return (actual <= FanPlausibleMaxRpm ? actual : null,
                 output.Length >= 5 ? output[3] | (output[4] << 8) : null);
         }
         catch (Exception exception)
