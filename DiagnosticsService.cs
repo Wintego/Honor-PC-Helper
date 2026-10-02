@@ -66,7 +66,8 @@ internal static class DiagnosticsService
         var power = ReadBatteryPowerWatts();
         if (power.HasValue)
         {
-            text.Append('\n').Append(L.T("Питание: ", "Power: ", "功率："));
+            // Это скорость заряда/разряда батареи, а не потребление ноутбука.
+            text.Append('\n').Append(L.T("Батарея: ", "Battery: ", "电池功率："));
             AppendPower(text, power.Value);
         }
 
@@ -141,7 +142,11 @@ internal static class DiagnosticsService
     {
         if (Math.Abs(watts) < 0.05)
         {
-            text.Append(L.T("0 Вт", "0 W", "0 瓦"));
+            // Ограничитель держит батарею в диапазоне, и ток через неё не идёт.
+            // Голые "0 Вт" читались как неработающий датчик (issue #14). Русский
+            // вариант без "0 Вт": иначе в производительном режиме строка
+            // вентиляторов перестаёт влезать в 127 символов.
+            text.Append(L.T("без тока", "0 W, idle", "0 瓦（未充放电）"));
             return;
         }
 

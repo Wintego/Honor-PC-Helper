@@ -1,6 +1,5 @@
-## Honor PC Helper 1.13.2
+## Honor PC Helper 1.13.3
 
-Fixed:
+Changed:
 
-- The driver check now survives a short stall of the HONOR support server. If the catalog request does not answer within 30 seconds, the app asks once more instead of giving up.
-- When the HONOR server still does not answer, the Drivers window says so: "HONOR server did not respond, try again later". Before, it said "Could not retrieve driver list", which looked like a fault in the app.
+- The tray tooltip line that used to say "Power" now says "Battery", because it shows the battery's charge/discharge rate, not what the laptop draws. When the charge limit holds the battery and no current flows, it says "0 W, idle" instead of a bare "0 W" that looked like a broken sensor.
