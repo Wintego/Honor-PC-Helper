@@ -121,6 +121,7 @@ internal sealed class ApplicationUpdateService
         }
 
         await ValidateDownloadedApplicationAsync(downloadedPath, update, cancellationToken);
+        PreloadReferencedAssemblies();
         await ApplyUpdateAsync(downloadedPath, cancellationToken);
         StartUpdatedApplication();
         Application.Exit();
@@ -166,6 +167,36 @@ internal sealed class ApplicationUpdateService
                 "Версия загруженного приложения не совпадает с версией релиза.",
                 "The downloaded application version does not match the release.",
                 "下载的应用程序版本与发布版本不匹配。"));
+    }
+
+    /// <summary>
+    /// Загружает все сборки, от которых зависит приложение. Single-file exe
+    /// подгружает их из своего файла лениво, по пути запуска; после замены
+    /// exe по этому пути уже другой файл, и первая же новая сборка - например,
+    /// System.Diagnostics.Process для перезапуска - не загрузится.
+    /// </summary>
+    private static void PreloadReferencedAssemblies()
+    {
+        var loaded = new HashSet<string>(
+            AppDomain.CurrentDomain.GetAssemblies().Select(assembly => assembly.GetName().Name ?? string.Empty),
+            StringComparer.OrdinalIgnoreCase);
+        var pending = new Stack<Assembly>(AppDomain.CurrentDomain.GetAssemblies());
+        while (pending.TryPop(out var assembly))
+        {
+            foreach (var reference in assembly.GetReferencedAssemblies())
+            {
+                if (reference.Name is null || !loaded.Add(reference.Name))
+                    continue;
+                try
+                {
+                    pending.Push(Assembly.Load(reference));
+                }
+                catch (Exception exception) when (exception is IOException or BadImageFormatException)
+                {
+                    // Сборки, которых нет в поставке, приложению и не нужны.
+                }
+            }
+        }
     }
 
     /// <summary>

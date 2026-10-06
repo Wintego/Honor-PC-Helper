@@ -1,5 +1,5 @@
-## Honor PC Helper 1.13.4
+## Honor PC Helper 1.13.5
 
 Fixed:
 
-- The tray tooltip no longer shows impossible fan speeds such as 53645 RPM. When the reading is caught mid-update, the fan shows "?" for that refresh instead.
+- After a self-update the new version now starts automatically instead of showing an error. Updating from 1.13.4 or older still uses the old updater, so if the error appears once more, just start Honor PC Helper again — the new version is already installed.
