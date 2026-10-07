@@ -154,12 +154,7 @@ The result is a single self-contained, compressed `dist\HonorPCHelper.exe`.
 
 Honor PC Helper is free, open source, and carries no ads or telemetry. If it saved you from installing HONOR PC Manager, you can support further development — any amount helps, and there is no obligation.
 
-| Method | Address |
-| --- | --- |
-| **BTC** | `bc1qeek2nwwhpd4faw2cla6nzzhjes28p9pdkd52lh` |
-| **ETH** | `0x3090134F22f62924843991c86f73cf53525B4432` |
-| **GRAM** | `UQAIAv3WrIrgtY2ZmJHx7JWXqH_BTRlhY18slpF1Sh7iPvAV` |
-| **USDT (TRC20)** | `TAWc6Yzs52ezkMD43PsKzFLgYpswnRBPwP` |
+[![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/wintego)
 
 ---
 
